@@ -1,0 +1,61 @@
+name: GitHub Gas Gauge
+
+on:
+  schedule:
+    # Run daily at 9am UTC
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      org:
+        description: "Organization name (leave blank for personal usage)"
+        required: false
+        default: ""
+      plan:
+        description: "Copilot plan (free, pro, business, enterprise)"
+        required: false
+        default: "pro"
+      quota:
+        description: "Monthly quota override (leave blank to use plan default)"
+        required: false
+        default: ""
+
+jobs:
+  gas-gauge:
+    name: Check Copilot Usage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run GitHub Gas Gauge (personal)
+        if: ${{ github.event.inputs.org == '' || github.event_name == 'schedule' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN || secrets.GITHUB_TOKEN }}
+          COPILOT_PLAN: ${{ github.event.inputs.plan || 'pro' }}
+          COPILOT_QUOTA: ${{ github.event.inputs.quota || '' }}
+        run: |
+          python gas_gauge.py \
+            --plan "${{ github.event.inputs.plan || 'pro' }}" \
+            ${{ github.event.inputs.quota && format('--quota {0}', github.event.inputs.quota) || '' }}
+
+      - name: Run GitHub Gas Gauge (organization)
+        if: ${{ github.event.inputs.org != '' && github.event_name != 'schedule' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN || secrets.GITHUB_TOKEN }}
+          COPILOT_PLAN: ${{ github.event.inputs.plan || 'pro' }}
+          COPILOT_QUOTA: ${{ github.event.inputs.quota || '' }}
+        run: |
+          python gas_gauge.py \
+            --org "${{ github.event.inputs.org }}" \
+            --plan "${{ github.event.inputs.plan || 'pro' }}" \
+            ${{ github.event.inputs.quota && format('--quota {0}', github.event.inputs.quota) || '' }}
