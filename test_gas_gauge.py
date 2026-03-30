@@ -199,5 +199,196 @@ class TestAPIFunctions(unittest.TestCase):
         self.assertEqual(result, {"usageItems": []})
 
 
+class TestActionsBilling(unittest.TestCase):
+    @patch("gas_gauge.requests.get")
+    def test_get_user_actions_billing_success(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "total_minutes_used": 450,
+            "included_minutes": 2000,
+            "total_paid_minutes_used": 0,
+        }
+        mock_get.return_value = mock_resp
+        result = gas_gauge.get_user_actions_billing("token123")
+        self.assertEqual(result["total_minutes_used"], 450)
+
+    @patch("gas_gauge.requests.get")
+    def test_get_user_actions_billing_not_found(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_get.return_value = mock_resp
+        result = gas_gauge.get_user_actions_billing("token123")
+        self.assertIsNone(result)
+
+    @patch("gas_gauge.requests.get")
+    def test_get_user_actions_billing_forbidden(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+        mock_get.return_value = mock_resp
+        result = gas_gauge.get_user_actions_billing("token123")
+        self.assertIsNone(result)
+
+    @patch("gas_gauge.requests.get")
+    def test_get_org_actions_billing_success(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "total_minutes_used": 1200,
+            "included_minutes": 3000,
+            "total_paid_minutes_used": 50,
+        }
+        mock_get.return_value = mock_resp
+        result = gas_gauge.get_org_actions_billing("token123", "my-org")
+        self.assertEqual(result["total_minutes_used"], 1200)
+
+    @patch("gas_gauge.requests.get")
+    def test_get_org_actions_billing_forbidden(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+        mock_get.return_value = mock_resp
+        result = gas_gauge.get_org_actions_billing("token123", "my-org")
+        self.assertIsNone(result)
+
+
+class TestParseActionsUsage(unittest.TestCase):
+    def test_none_data(self):
+        result = gas_gauge.parse_actions_usage(None)
+        self.assertEqual(result["minutes_used"], 0)
+        self.assertEqual(result["included_minutes"], 0)
+        self.assertEqual(result["total_paid_minutes_used"], 0)
+        self.assertEqual(result["minutes_used_breakdown"], {})
+
+    def test_full_data(self):
+        data = {
+            "total_minutes_used": 450,
+            "included_minutes": 2000,
+            "total_paid_minutes_used": 0,
+            "minutes_used_breakdown": {"UBUNTU": 400, "MACOS": 50},
+        }
+        result = gas_gauge.parse_actions_usage(data)
+        self.assertEqual(result["minutes_used"], 450)
+        self.assertEqual(result["included_minutes"], 2000)
+        self.assertEqual(result["total_paid_minutes_used"], 0)
+        self.assertEqual(result["minutes_used_breakdown"]["UBUNTU"], 400)
+        self.assertEqual(result["minutes_used_breakdown"]["MACOS"], 50)
+
+    def test_overage_data(self):
+        data = {
+            "total_minutes_used": 2100,
+            "included_minutes": 2000,
+            "total_paid_minutes_used": 100,
+        }
+        result = gas_gauge.parse_actions_usage(data)
+        self.assertEqual(result["minutes_used"], 2100)
+        self.assertEqual(result["total_paid_minutes_used"], 100)
+
+    def test_missing_fields_default_to_zero(self):
+        result = gas_gauge.parse_actions_usage({})
+        self.assertEqual(result["minutes_used"], 0)
+        self.assertEqual(result["included_minutes"], 0)
+
+
+class TestPrintActionsGauge(unittest.TestCase):
+    def test_basic_output(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            gas_gauge.print_actions_gauge(
+                minutes_used=450,
+                included_minutes=2000,
+                total_paid_minutes_used=0,
+                login="testuser",
+                no_color=True,
+            )
+        output = buf.getvalue()
+        self.assertIn("Actions", output)
+        self.assertIn("450", output)
+        self.assertIn("2,000", output)
+
+    def test_overage_shown(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            gas_gauge.print_actions_gauge(
+                minutes_used=2100,
+                included_minutes=2000,
+                total_paid_minutes_used=100,
+                login="testuser",
+                no_color=True,
+            )
+        output = buf.getvalue()
+        self.assertIn("100", output)
+        self.assertIn("$", output)
+
+    def test_org_scope_shown(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            gas_gauge.print_actions_gauge(
+                minutes_used=100,
+                included_minutes=3000,
+                total_paid_minutes_used=0,
+                login="testuser",
+                org="my-org",
+                no_color=True,
+            )
+        output = buf.getvalue()
+        self.assertIn("Org: my-org", output)
+
+
+class TestCLIFlags(unittest.TestCase):
+    @patch("gas_gauge.get_authenticated_user")
+    @patch("gas_gauge.get_user_billing_usage")
+    @patch("gas_gauge.get_user_actions_billing")
+    def test_copilot_only_flag(self, mock_actions, mock_copilot, mock_user):
+        mock_user.return_value = {"login": "testuser"}
+        mock_copilot.return_value = {"usageItems": []}
+        mock_actions.return_value = None
+
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["gas_gauge.py", "--token", "tok", "--copilot-only", "--no-color"]):
+                gas_gauge.main()
+
+        mock_actions.assert_not_called()
+        output = buf.getvalue()
+        self.assertIn("Copilot Gas Gauge", output)
+
+    @patch("gas_gauge.get_authenticated_user")
+    @patch("gas_gauge.get_user_billing_usage")
+    @patch("gas_gauge.get_user_actions_billing")
+    def test_actions_only_flag(self, mock_actions, mock_copilot, mock_user):
+        mock_user.return_value = {"login": "testuser"}
+        mock_copilot.return_value = {"usageItems": []}
+        mock_actions.return_value = {
+            "total_minutes_used": 100,
+            "included_minutes": 2000,
+            "total_paid_minutes_used": 0,
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["gas_gauge.py", "--token", "tok", "--actions-only", "--no-color"]):
+                gas_gauge.main()
+
+        mock_copilot.assert_not_called()
+        output = buf.getvalue()
+        self.assertIn("Actions", output)
+
+    def test_actions_only_and_copilot_only_mutual_exclusion(self):
+        with patch("sys.argv", ["gas_gauge.py", "--token", "tok", "--actions-only", "--copilot-only"]):
+            with self.assertRaises(SystemExit) as cm:
+                gas_gauge.main()
+            self.assertEqual(cm.exception.code, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

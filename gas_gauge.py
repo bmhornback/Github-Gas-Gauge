@@ -269,6 +269,95 @@ def print_gas_gauge(
     print(header)
 
 
+def get_user_actions_billing(token: str) -> dict:
+    """Get Actions billing usage for the authenticated user."""
+    resp = requests.get(
+        f"{GITHUB_API_BASE}/user/settings/billing/actions",
+        headers=get_headers(token),
+        timeout=30,
+    )
+    if resp.status_code in (403, 404):
+        return None
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_org_actions_billing(token: str, org: str) -> dict:
+    """Get Actions billing usage for an organization."""
+    resp = requests.get(
+        f"{GITHUB_API_BASE}/orgs/{org}/settings/billing/actions",
+        headers=get_headers(token),
+        timeout=30,
+    )
+    if resp.status_code in (403, 404):
+        return None
+    resp.raise_for_status()
+    return resp.json()
+
+
+def parse_actions_usage(data: dict) -> dict:
+    """Parse Actions billing API response into a normalized dict."""
+    if not data:
+        return {
+            "minutes_used": 0,
+            "included_minutes": 0,
+            "minutes_used_breakdown": {},
+            "total_paid_minutes_used": 0,
+        }
+    return {
+        "minutes_used": data.get("total_minutes_used", 0) or 0,
+        "included_minutes": data.get("included_minutes", 0) or 0,
+        "minutes_used_breakdown": data.get("minutes_used_breakdown", {}) or {},
+        "total_paid_minutes_used": data.get("total_paid_minutes_used", 0) or 0,
+    }
+
+
+def print_actions_gauge(
+    minutes_used: int,
+    included_minutes: int,
+    total_paid_minutes_used: int,
+    minutes_used_breakdown: dict = None,
+    login: str = "unknown",
+    org: str = None,
+    no_color: bool = False,
+):
+    """Print the Actions billing gas gauge report."""
+    remaining = max(included_minutes - minutes_used, 0)
+    pct_used = (minutes_used / included_minutes * 100) if included_minutes > 0 else 0.0
+
+    # Per-minute overage pricing for Ubuntu (most common runner)
+    ubuntu_per_minute = 0.008
+    estimated_cost = total_paid_minutes_used * ubuntu_per_minute
+
+    header = f"{'=' * 60}"
+    print(header)
+    print("  ⚙️  GitHub Actions Usage")
+    print(header)
+
+    scope = f"Org: {org}" if org else f"User: {login}"
+    print(f"  {scope}")
+    print()
+
+    gauge_bar = draw_gauge(minutes_used, included_minutes, no_color=no_color)
+    print(f"  Usage   {gauge_bar}  {pct_used:.1f}%")
+    print()
+    print(f"  Minutes Used (this month):   {minutes_used:>8,}")
+    print(f"  Included Minutes:            {included_minutes:>8,}")
+    print(f"  Minutes Remaining:           {remaining:>8,}")
+    print()
+
+    if minutes_used_breakdown:
+        print("  Minutes by Runner OS:")
+        for os_name, mins in sorted(minutes_used_breakdown.items(), key=lambda x: -x[1]):
+            if mins and mins > 0:
+                print(f"    {os_name:<20} {mins:>8,} minutes")
+        print()
+
+    print(f"  Paid Minutes Used (overage): {total_paid_minutes_used:>8,}")
+    print(f"  Estimated Overage Cost:      ${estimated_cost:>7.2f}")
+    print(header)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="GitHub Gas Gauge – View your Copilot premium request consumption.",
@@ -280,6 +369,12 @@ Examples:
 
   # Check an organization's usage
   python gas_gauge.py --org my-org
+
+  # Show only Actions billing
+  python gas_gauge.py --actions-only
+
+  # Show only Copilot section
+  python gas_gauge.py --copilot-only
 
   # Specify a different month
   python gas_gauge.py --year 2025 --month 6
@@ -340,6 +435,22 @@ Environment variables:
         action="store_true",
         help="Output raw JSON usage data",
     )
+    parser.add_argument(
+        "--show-actions",
+        action="store_true",
+        default=True,
+        help="Include Actions billing section (default: True)",
+    )
+    parser.add_argument(
+        "--actions-only",
+        action="store_true",
+        help="Show only Actions billing, skip Copilot section",
+    )
+    parser.add_argument(
+        "--copilot-only",
+        action="store_true",
+        help="Show only Copilot section, skip Actions billing",
+    )
 
     args = parser.parse_args()
 
@@ -348,6 +459,13 @@ Environment variables:
         print("       Create a token at: https://github.com/settings/tokens")
         print("       Required scopes: read:org (for org usage) or copilot (for user usage)")
         sys.exit(1)
+
+    if args.actions_only and args.copilot_only:
+        print("Error: --actions-only and --copilot-only are mutually exclusive.")
+        sys.exit(1)
+
+    show_copilot = not args.actions_only
+    show_actions = not args.copilot_only
 
     # Determine quota
     quota_env = os.environ.get("COPILOT_QUOTA")
@@ -373,40 +491,72 @@ Environment variables:
         print("Error: Could not connect to GitHub API. Check your network connection.")
         sys.exit(1)
 
-    # Fetch usage data
-    usage_data = None
-    if args.org:
-        try:
-            usage_data = get_org_billing_usage(args.token, args.org, args.year, args.month)
-            if usage_data is None:
-                print(f"Warning: Could not retrieve org usage for '{args.org}'.")
-                print("         Ensure you have admin/billing manager access.")
-        except requests.exceptions.HTTPError as e:
-            print(f"Error fetching org usage: {e}")
-    else:
-        try:
-            usage_data = get_user_billing_usage(args.token, args.year, args.month)
-        except requests.exceptions.HTTPError as e:
-            print(f"Error fetching user usage: {e}")
+    # Fetch and display Copilot usage
+    if show_copilot:
+        usage_data = None
+        if args.org:
+            try:
+                usage_data = get_org_billing_usage(args.token, args.org, args.year, args.month)
+                if usage_data is None:
+                    print(f"Warning: Could not retrieve org Copilot usage for '{args.org}'.")
+                    print("         Ensure you have admin/billing manager access.")
+            except requests.exceptions.HTTPError as e:
+                print(f"Error fetching org Copilot usage: {e}")
+        else:
+            try:
+                usage_data = get_user_billing_usage(args.token, args.year, args.month)
+            except requests.exceptions.HTTPError as e:
+                print(f"Error fetching user Copilot usage: {e}")
 
-    if args.json:
-        import json
-        print(json.dumps(usage_data, indent=2))
-        return
+        if args.json:
+            import json
+            print(json.dumps(usage_data, indent=2))
+            return
 
-    parsed = parse_usage(usage_data)
+        parsed = parse_usage(usage_data)
 
-    print_gas_gauge(
-        used=parsed["gross"],
-        quota=quota,
-        login=login,
-        org=args.org,
-        year=args.year,
-        month=args.month,
-        by_model=parsed["by_model"],
-        by_product=parsed["by_product"],
-        no_color=args.no_color,
-    )
+        print_gas_gauge(
+            used=parsed["gross"],
+            quota=quota,
+            login=login,
+            org=args.org,
+            year=args.year,
+            month=args.month,
+            by_model=parsed["by_model"],
+            by_product=parsed["by_product"],
+            no_color=args.no_color,
+        )
+
+    # Fetch and display Actions usage
+    if show_actions:
+        actions_data = None
+        if args.org:
+            try:
+                actions_data = get_org_actions_billing(args.token, args.org)
+                if actions_data is None:
+                    print(f"Warning: Could not retrieve org Actions billing for '{args.org}'.")
+                    print("         Ensure you have admin/billing manager access.")
+            except requests.exceptions.HTTPError as e:
+                print(f"Error fetching org Actions billing: {e}")
+        else:
+            try:
+                actions_data = get_user_actions_billing(args.token)
+            except requests.exceptions.HTTPError as e:
+                print(f"Error fetching Actions billing: {e}")
+
+        if actions_data is not None:
+            parsed_actions = parse_actions_usage(actions_data)
+            print_actions_gauge(
+                minutes_used=parsed_actions["minutes_used"],
+                included_minutes=parsed_actions["included_minutes"],
+                total_paid_minutes_used=parsed_actions["total_paid_minutes_used"],
+                minutes_used_breakdown=parsed_actions["minutes_used_breakdown"],
+                login=login,
+                org=args.org,
+                no_color=args.no_color,
+            )
+        elif not args.org:
+            print("Note: Actions billing data not available for this account.")
 
 
 if __name__ == "__main__":
