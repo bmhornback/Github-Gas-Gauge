@@ -9,6 +9,8 @@ interface AppConfig {
   alert_75: boolean;
   alert_90: boolean;
   alert_100: boolean;
+  provider_keys: Record<string, string>;
+  provider_limits: Record<string, number>;
 }
 
 interface SettingsProps {
@@ -16,9 +18,59 @@ interface SettingsProps {
   onSave: (config: AppConfig) => Promise<void>;
 }
 
+interface ProviderDef {
+  id: string;
+  name: string;
+  keyPlaceholder: string;
+  hasPublicApi: boolean;
+  apiNote?: string;
+}
+
+const PROVIDER_DEFS: ProviderDef[] = [
+  {
+    id: "openai",
+    name: "OpenAI",
+    keyPlaceholder: "sk-…",
+    hasPublicApi: true,
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    keyPlaceholder: "sk-ant-…",
+    hasPublicApi: false,
+    apiNote: "No public usage API yet — key stored for future support.",
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    keyPlaceholder: "sk-…",
+    hasPublicApi: true,
+  },
+  {
+    id: "perplexity",
+    name: "Perplexity",
+    keyPlaceholder: "pplx-…",
+    hasPublicApi: false,
+    apiNote: "No public usage API yet — key stored for future support.",
+  },
+  {
+    id: "gemini",
+    name: "Google Gemini",
+    keyPlaceholder: "AIza…",
+    hasPublicApi: false,
+    apiNote: "No public usage API yet — key stored for future support.",
+  },
+];
+
 export default function Settings({ initialConfig, onSave }: SettingsProps) {
-  const [config, setConfig] = useState<AppConfig>({ ...initialConfig });
-  const [showToken, setShowToken] = useState(false);
+  const [config, setConfig] = useState<AppConfig>({
+    ...initialConfig,
+    provider_keys: initialConfig.provider_keys ?? {},
+    provider_limits: initialConfig.provider_limits ?? {},
+  });
+  const [showTokens, setShowTokens] = useState<Record<string, boolean>>({
+    github: false,
+  });
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -31,16 +83,39 @@ export default function Settings({ initialConfig, onSave }: SettingsProps) {
     }
   };
 
+  const toggleShow = (key: string) =>
+    setShowTokens((v) => ({ ...v, [key]: !v[key] }));
+
+  const setProviderKey = (id: string, value: string) =>
+    setConfig((c) => ({
+      ...c,
+      provider_keys: { ...c.provider_keys, [id]: value },
+    }));
+
+  const setProviderLimit = (id: string, value: string) => {
+    const num = parseFloat(value);
+    setConfig((c) => ({
+      ...c,
+      provider_limits: {
+        ...c.provider_limits,
+        [id]: isNaN(num) ? 0 : num,
+      },
+    }));
+  };
+
   return (
     <form className="settings" onSubmit={handleSubmit}>
       <h2>Settings</h2>
+
+      {/* ── GitHub ── */}
+      <h3 className="settings-section-heading">GitHub</h3>
 
       <div className="field">
         <label htmlFor="token">GitHub Personal Access Token</label>
         <div className="token-row">
           <input
             id="token"
-            type={showToken ? "text" : "password"}
+            type={showTokens.github ? "text" : "password"}
             value={config.token}
             onChange={(e) => setConfig({ ...config, token: e.target.value })}
             placeholder="ghp_…"
@@ -49,9 +124,9 @@ export default function Settings({ initialConfig, onSave }: SettingsProps) {
           <button
             type="button"
             className="btn-toggle-token"
-            onClick={() => setShowToken((v) => !v)}
+            onClick={() => toggleShow("github")}
           >
-            {showToken ? "Hide" : "Show"}
+            {showTokens.github ? "Hide" : "Show"}
           </button>
         </div>
         <span className="field-hint">
@@ -140,9 +215,68 @@ export default function Settings({ initialConfig, onSave }: SettingsProps) {
         </label>
       </fieldset>
 
+      {/* ── External AI Providers ── */}
+      <h3 className="settings-section-heading">External AI Providers</h3>
+      <p className="settings-section-hint">
+        Add API keys to enable per-provider token consumption gauges.
+        Set a monthly limit to show a spending gauge.
+      </p>
+
+      {PROVIDER_DEFS.map((def) => (
+        <fieldset key={def.id} className="fieldset fieldset--provider">
+          <legend>{def.name}</legend>
+
+          {def.apiNote && (
+            <p className="provider-api-note">{def.apiNote}</p>
+          )}
+
+          <div className="field">
+            <label htmlFor={`key-${def.id}`}>API Key</label>
+            <div className="token-row">
+              <input
+                id={`key-${def.id}`}
+                type={showTokens[def.id] ? "text" : "password"}
+                value={config.provider_keys[def.id] ?? ""}
+                onChange={(e) => setProviderKey(def.id, e.target.value)}
+                placeholder={def.keyPlaceholder}
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                className="btn-toggle-token"
+                onClick={() => toggleShow(def.id)}
+              >
+                {showTokens[def.id] ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          {def.hasPublicApi && (
+            <div className="field">
+              <label htmlFor={`limit-${def.id}`}>
+                Monthly Limit (USD, optional)
+              </label>
+              <input
+                id={`limit-${def.id}`}
+                type="number"
+                min={0}
+                step="0.01"
+                value={config.provider_limits[def.id] ?? ""}
+                onChange={(e) => setProviderLimit(def.id, e.target.value)}
+                placeholder="e.g. 50"
+              />
+              <span className="field-hint">
+                Enables the spending gauge bar.
+              </span>
+            </div>
+          )}
+        </fieldset>
+      ))}
+
       <button type="submit" className="btn-save" disabled={saving}>
         {saving ? "Saving…" : "Save Settings"}
       </button>
     </form>
   );
 }
+

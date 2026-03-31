@@ -1,6 +1,7 @@
 // App configuration — stored as JSON in the OS app-data directory.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 const CONFIG_FILE_NAME: &str = "gas-gauge-config.json";
@@ -23,6 +24,13 @@ pub struct AppConfig {
     pub alert_90: bool,
     /// Fire notification at 100% usage.
     pub alert_100: bool,
+    /// External AI provider API keys keyed by provider ID
+    /// ("openai", "anthropic", "deepseek", "perplexity", "gemini").
+    #[serde(default)]
+    pub provider_keys: HashMap<String, String>,
+    /// Optional monthly spending / credit limits per provider (USD).
+    #[serde(default)]
+    pub provider_limits: HashMap<String, f64>,
 }
 
 impl Default for AppConfig {
@@ -36,6 +44,8 @@ impl Default for AppConfig {
             alert_75: true,
             alert_90: true,
             alert_100: true,
+            provider_keys: HashMap::new(),
+            provider_limits: HashMap::new(),
         }
     }
 }

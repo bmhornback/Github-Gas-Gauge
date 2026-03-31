@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import GasGauge from "./components/GasGauge";
 import OveragePanel from "./components/OveragePanel";
 import BalancePanel from "./components/BalancePanel";
+import ProviderGauges, { type ProviderUsage } from "./components/ProviderGauges";
 import Settings from "./components/Settings";
 
 interface CopilotUsage {
@@ -26,6 +27,7 @@ interface ActionsUsage {
 interface BillingData {
   copilot?: CopilotUsage;
   actions?: ActionsUsage;
+  providers: ProviderUsage[];
 }
 
 interface AppConfig {
@@ -37,6 +39,8 @@ interface AppConfig {
   alert_75: boolean;
   alert_90: boolean;
   alert_100: boolean;
+  provider_keys: Record<string, string>;
+  provider_limits: Record<string, number>;
 }
 
 type Tab = "dashboard" | "settings";

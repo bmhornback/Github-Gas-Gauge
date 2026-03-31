@@ -350,3 +350,140 @@ html, body, #root {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ── Settings section headings ────────────────────────────────────────────── */
+
+.settings-section-heading {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.settings-section-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: -8px;
+}
+
+.fieldset--provider {
+  gap: 10px;
+}
+
+.provider-api-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Providers section (dashboard) ───────────────────────────────────────── */
+
+.providers-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.providers-section h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.providers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.provider-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.provider-card h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.provider-card--unavailable {
+  opacity: 0.65;
+}
+
+.provider-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.provider-note--hint {
+  font-style: italic;
+}
+
+.provider-no-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0;
+}
+
+.provider-cost-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.provider-cost-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.provider-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.provider-models {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.provider-models h4 {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.provider-model-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 1px 0;
+}
+
+.provider-model-name {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+
+.provider-model-cost {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
