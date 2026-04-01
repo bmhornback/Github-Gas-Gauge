@@ -1,282 +1,226 @@
-import { useState } from "react";
-
-interface AppConfig {
-  token: string;
-  use_org: boolean;
-  org_name: string;
-  poll_interval_minutes: number;
-  copilot_quota: number;
-  alert_75: boolean;
-  alert_90: boolean;
-  alert_100: boolean;
-  provider_keys: Record<string, string>;
-  provider_limits: Record<string, number>;
-}
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { AppConfig } from "../App";
 
 interface SettingsProps {
-  initialConfig: AppConfig;
-  onSave: (config: AppConfig) => Promise<void>;
+  initialConfig: AppConfig | null;
+  onSaved: () => void;
+  onCancel: () => void;
 }
 
-interface ProviderDef {
-  id: string;
-  name: string;
-  keyPlaceholder: string;
-  hasPublicApi: boolean;
-  apiNote?: string;
-}
+const DEFAULT_CONFIG: AppConfig = {
+  github_pat: null,
+  use_org: false,
+  org_name: null,
+  polling_interval: "fifteen_minutes",
+  alert_thresholds: {
+    notify_at_75: true,
+    notify_at_90: true,
+    notify_at_100: true,
+  },
+};
 
-const PROVIDER_DEFS: ProviderDef[] = [
-  {
-    id: "openai",
-    name: "OpenAI",
-    keyPlaceholder: "sk-…",
-    hasPublicApi: true,
-  },
-  {
-    id: "anthropic",
-    name: "Anthropic",
-    keyPlaceholder: "sk-ant-…",
-    hasPublicApi: false,
-    apiNote: "No public usage API yet — key stored for future support.",
-  },
-  {
-    id: "deepseek",
-    name: "DeepSeek",
-    keyPlaceholder: "sk-…",
-    hasPublicApi: true,
-  },
-  {
-    id: "perplexity",
-    name: "Perplexity",
-    keyPlaceholder: "pplx-…",
-    hasPublicApi: false,
-    apiNote: "No public usage API yet — key stored for future support.",
-  },
-  {
-    id: "gemini",
-    name: "Google Gemini",
-    keyPlaceholder: "AIza…",
-    hasPublicApi: false,
-    apiNote: "No public usage API yet — key stored for future support.",
-  },
-];
-
-export default function Settings({ initialConfig, onSave }: SettingsProps) {
-  const [config, setConfig] = useState<AppConfig>({
-    ...initialConfig,
-    provider_keys: initialConfig.provider_keys ?? {},
-    provider_limits: initialConfig.provider_limits ?? {},
-  });
-  const [showTokens, setShowTokens] = useState<Record<string, boolean>>({
-    github: false,
-  });
+function Settings({ initialConfig, onSaved, onCancel }: SettingsProps) {
+  const [pat, setPat] = useState("");
+  const [showPat, setShowPat] = useState(false);
+  const [useOrg, setUseOrg] = useState(false);
+  const [orgName, setOrgName] = useState("");
+  const [pollingInterval, setPollingInterval] =
+    useState<AppConfig["polling_interval"]>("fifteen_minutes");
+  const [notify75, setNotify75] = useState(true);
+  const [notify90, setNotify90] = useState(true);
+  const [notify100, setNotify100] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    const cfg = initialConfig ?? DEFAULT_CONFIG;
+    setPat(cfg.github_pat ?? "");
+    setUseOrg(cfg.use_org);
+    setOrgName(cfg.org_name ?? "");
+    setPollingInterval(cfg.polling_interval);
+    setNotify75(cfg.alert_thresholds.notify_at_75);
+    setNotify90(cfg.alert_thresholds.notify_at_90);
+    setNotify100(cfg.alert_thresholds.notify_at_100);
+  }, [initialConfig]);
+
+  async function handleSave() {
     setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+
+    const config: AppConfig = {
+      github_pat: pat.trim() || null,
+      use_org: useOrg,
+      org_name: orgName.trim() || null,
+      polling_interval: pollingInterval,
+      alert_thresholds: {
+        notify_at_75: notify75,
+        notify_at_90: notify90,
+        notify_at_100: notify100,
+      },
+    };
+
     try {
-      await onSave(config);
+      await invoke("save_config_cmd", { newConfig: config });
+      setSaveSuccess(true);
+      setTimeout(() => {
+        onSaved();
+      }, 800);
+    } catch (e) {
+      setSaveError(typeof e === "string" ? e : "Failed to save settings.");
     } finally {
       setSaving(false);
     }
-  };
-
-  const toggleShow = (key: string) =>
-    setShowTokens((v) => ({ ...v, [key]: !v[key] }));
-
-  const setProviderKey = (id: string, value: string) =>
-    setConfig((c) => ({
-      ...c,
-      provider_keys: { ...c.provider_keys, [id]: value },
-    }));
-
-  const setProviderLimit = (id: string, value: string) => {
-    const num = parseFloat(value);
-    setConfig((c) => ({
-      ...c,
-      provider_limits: {
-        ...c.provider_limits,
-        [id]: isNaN(num) ? 0 : num,
-      },
-    }));
-  };
+  }
 
   return (
-    <form className="settings" onSubmit={handleSubmit}>
-      <h2>Settings</h2>
+    <div className="settings-panel">
+      <h2 className="settings-title">⚙️ Settings</h2>
 
-      {/* ── GitHub ── */}
-      <h3 className="settings-section-heading">GitHub</h3>
-
-      <div className="field">
-        <label htmlFor="token">GitHub Personal Access Token</label>
-        <div className="token-row">
+      {/* GitHub PAT */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="pat-input">
+          GitHub Personal Access Token
+        </label>
+        <div className="input-row">
           <input
-            id="token"
-            type={showTokens.github ? "text" : "password"}
-            value={config.token}
-            onChange={(e) => setConfig({ ...config, token: e.target.value })}
+            id="pat-input"
+            type={showPat ? "text" : "password"}
+            className="form-input"
+            value={pat}
+            onChange={(e) => setPat(e.target.value)}
             placeholder="ghp_…"
             autoComplete="off"
           />
           <button
             type="button"
-            className="btn-toggle-token"
-            onClick={() => toggleShow("github")}
+            className="btn-icon"
+            onClick={() => setShowPat((s) => !s)}
+            title={showPat ? "Hide token" : "Show token"}
           >
-            {showTokens.github ? "Hide" : "Show"}
+            {showPat ? "🙈" : "👁️"}
           </button>
         </div>
-        <span className="field-hint">
-          Requires <code>copilot</code> scope (personal) or <code>read:org</code> (org).
-        </span>
+        <p className="form-hint">
+          Requires <code>read:org</code> scope for org accounts, or{" "}
+          <code>user</code> scope for personal.{" "}
+          <a
+            href="https://github.com/settings/tokens/new"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Create a token ↗
+          </a>
+        </p>
       </div>
 
-      <div className="field field--row">
-        <label>
-          <input
-            type="checkbox"
-            checked={config.use_org}
-            onChange={(e) => setConfig({ ...config, use_org: e.target.checked })}
-          />
-          {" "}Use organization account
-        </label>
-      </div>
-
-      {config.use_org && (
-        <div className="field">
-          <label htmlFor="org-name">Organization Name</label>
-          <input
-            id="org-name"
-            type="text"
-            value={config.org_name}
-            onChange={(e) => setConfig({ ...config, org_name: e.target.value })}
-            placeholder="my-org"
-          />
+      {/* Account mode */}
+      <div className="form-group">
+        <label className="form-label">Account Type</label>
+        <div className="toggle-row">
+          <label className="toggle-option">
+            <input
+              type="radio"
+              name="account-type"
+              checked={!useOrg}
+              onChange={() => setUseOrg(false)}
+            />
+            Personal Account
+          </label>
+          <label className="toggle-option">
+            <input
+              type="radio"
+              name="account-type"
+              checked={useOrg}
+              onChange={() => setUseOrg(true)}
+            />
+            Organization
+          </label>
         </div>
-      )}
+        {useOrg && (
+          <input
+            type="text"
+            className="form-input"
+            value={orgName}
+            onChange={(e) => setOrgName(e.target.value)}
+            placeholder="my-org-name"
+            style={{ marginTop: "0.5rem" }}
+          />
+        )}
+      </div>
 
-      <div className="field">
-        <label htmlFor="poll-interval">Polling Interval</label>
+      {/* Polling interval */}
+      <div className="form-group">
+        <label className="form-label" htmlFor="polling-select">
+          Polling Interval
+        </label>
         <select
-          id="poll-interval"
-          value={config.poll_interval_minutes}
+          id="polling-select"
+          className="form-input"
+          value={pollingInterval}
           onChange={(e) =>
-            setConfig({ ...config, poll_interval_minutes: Number(e.target.value) })
+            setPollingInterval(e.target.value as AppConfig["polling_interval"])
           }
         >
-          <option value={5}>Every 5 minutes</option>
-          <option value={15}>Every 15 minutes</option>
-          <option value={30}>Every 30 minutes</option>
-          <option value={60}>Every hour</option>
+          <option value="five_minutes">Every 5 minutes</option>
+          <option value="fifteen_minutes">Every 15 minutes</option>
+          <option value="thirty_minutes">Every 30 minutes</option>
+          <option value="one_hour">Every hour</option>
         </select>
       </div>
 
-      <div className="field">
-        <label htmlFor="copilot-quota">Copilot Monthly Quota</label>
-        <input
-          id="copilot-quota"
-          type="number"
-          min={1}
-          value={config.copilot_quota}
-          onChange={(e) =>
-            setConfig({ ...config, copilot_quota: Number(e.target.value) })
-          }
-        />
+      {/* Threshold notifications */}
+      <div className="form-group">
+        <label className="form-label">Threshold Notifications</label>
+        <div className="checkbox-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={notify75}
+              onChange={(e) => setNotify75(e.target.checked)}
+            />
+            🟡 Notify at 75%
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={notify90}
+              onChange={(e) => setNotify90(e.target.checked)}
+            />
+            🟠 Notify at 90%
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={notify100}
+              onChange={(e) => setNotify100(e.target.checked)}
+            />
+            🔴 Notify at 100%
+          </label>
+        </div>
       </div>
 
-      <fieldset className="fieldset">
-        <legend>Threshold Notifications</legend>
-        <label>
-          <input
-            type="checkbox"
-            checked={config.alert_75}
-            onChange={(e) => setConfig({ ...config, alert_75: e.target.checked })}
-          />
-          {" "}Alert at 75%
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={config.alert_90}
-            onChange={(e) => setConfig({ ...config, alert_90: e.target.checked })}
-          />
-          {" "}Alert at 90%
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={config.alert_100}
-            onChange={(e) => setConfig({ ...config, alert_100: e.target.checked })}
-          />
-          {" "}Alert at 100%
-        </label>
-      </fieldset>
+      {/* Feedback */}
+      {saveError && <div className="error-banner">⚠️ {saveError}</div>}
+      {saveSuccess && (
+        <div className="success-banner">✅ Settings saved! Refreshing…</div>
+      )}
 
-      {/* ── External AI Providers ── */}
-      <h3 className="settings-section-heading">External AI Providers</h3>
-      <p className="settings-section-hint">
-        Add API keys to enable per-provider token consumption gauges.
-        Set a monthly limit to show a spending gauge.
-      </p>
-
-      {PROVIDER_DEFS.map((def) => (
-        <fieldset key={def.id} className="fieldset fieldset--provider">
-          <legend>{def.name}</legend>
-
-          {def.apiNote && (
-            <p className="provider-api-note">{def.apiNote}</p>
-          )}
-
-          <div className="field">
-            <label htmlFor={`key-${def.id}`}>API Key</label>
-            <div className="token-row">
-              <input
-                id={`key-${def.id}`}
-                type={showTokens[def.id] ? "text" : "password"}
-                value={config.provider_keys[def.id] ?? ""}
-                onChange={(e) => setProviderKey(def.id, e.target.value)}
-                placeholder={def.keyPlaceholder}
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                className="btn-toggle-token"
-                onClick={() => toggleShow(def.id)}
-              >
-                {showTokens[def.id] ? "Hide" : "Show"}
-              </button>
-            </div>
-          </div>
-
-          {def.hasPublicApi && (
-            <div className="field">
-              <label htmlFor={`limit-${def.id}`}>
-                Monthly Limit (USD, optional)
-              </label>
-              <input
-                id={`limit-${def.id}`}
-                type="number"
-                min={0}
-                step="0.01"
-                value={config.provider_limits[def.id] ?? ""}
-                onChange={(e) => setProviderLimit(def.id, e.target.value)}
-                placeholder="e.g. 50"
-              />
-              <span className="field-hint">
-                Enables the spending gauge bar.
-              </span>
-            </div>
-          )}
-        </fieldset>
-      ))}
-
-      <button type="submit" className="btn-save" disabled={saving}>
-        {saving ? "Saving…" : "Save Settings"}
-      </button>
-    </form>
+      {/* Actions */}
+      <div className="action-row">
+        <button className="btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? "Saving…" : "Save Settings"}
+        </button>
+        {initialConfig?.github_pat && (
+          <button className="btn-secondary" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
+export default Settings;

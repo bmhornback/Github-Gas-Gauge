@@ -1,8 +1,11 @@
-# GitHub Gas Gauge 🔋
+# ⛽ GitHub Gas Gauge (GGG)
 
 A CLI tool and GitHub Action to view your GitHub Copilot premium request consumption and estimate how many simple or complex tasks you have remaining in the current billing period. Also reports GitHub Actions minutes usage and external AI provider token consumption — all in one place.
 
-## Features
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%20v2-blue?logo=tauri)](https://tauri.app)
+[![Built with Rust](https://img.shields.io/badge/Backend-Rust-orange?logo=rust)](https://www.rust-lang.org)
+[![React Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61dafb?logo=react)](https://reactjs.org)
 
 - **Visual gas gauge** showing used vs. remaining premium requests
 - **Task estimates** – see how many simple (chat) or complex (coding agent) tasks remain
@@ -13,93 +16,65 @@ A CLI tool and GitHub Action to view your GitHub Copilot premium request consump
 - **GitHub Action** for automated daily reporting
 - **Desktop app** (Tauri + Rust + React) — system tray icon, live gauges, threshold alerts
 
-## Example Output
+---
 
 ```
-============================================================
-  🔋 GitHub Copilot Gas Gauge
-============================================================
-  User: octocat  |  Period: March 2026
 
-  Usage   [████████████████░░░░░░░░░░░░░░░░░░░░░░░░]  40.0%
+GitHub Gas Gauge (GGG) is a cross-platform desktop application (Windows + macOS) that monitors your **GitHub Actions billing usage** and displays it as a visual "Gas Gauge" — so you always know how much of your included minutes remain before you incur overage charges.
 
-  Premium Requests Used:           120
-  Premium Requests Remaining:      180
-  Monthly Quota:                   300
+### Features
 
-  Remaining Task Estimates:
-    Simple     (~1 req each):     180 tasks remaining
-               Simple chat turn or inline suggestion with default model
-    Complex    (~15 req each):     12 tasks remaining
-               Copilot coding agent task or advanced model interaction
+- ⛽ **Visual Gas Gauge** — SVG arc-based semicircular gauge with color zones (🟢 green / 🟡 yellow / 🔴 red)
+- 🔔 **Desktop Notifications** — OS notifications at 75%, 90%, and 100% usage thresholds
+- 🗂️ **System Tray Integration** — Lives quietly in your system tray; left-click to open
+- 📊 **Usage Breakdown** — Minutes used by Ubuntu, macOS, and Windows runners
+- ⚠️ **Overage Panel** — Shows paid overage minutes and estimated cost
+- ⚙️ **Settings** — PAT input, org/personal toggle, polling interval, notification thresholds
+- 🔄 **Auto-polling** — Configurable polling interval (5 min / 15 min / 30 min / 1 hour)
+- 🌙 **Dark Mode UI** — Clean, minimal dark theme
 
-  Usage by Model:
-    gpt-4o                               100 requests
-    claude-3.5-sonnet                     20 requests
+---
 
-  Days remaining in billing period: 20
-  Daily budget to stay on track:     9 requests/day
-============================================================
-============================================================
-  ⚙️  GitHub Actions Usage
-============================================================
-  User: octocat
+## Screenshots
 
-  Usage   [█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  22.5%
+> _Screenshots will be added once the app is built and running._
 
-  Minutes Used (this month):        450
-  Included Minutes:               2,000
-  Minutes Remaining:              1,550
+---
 
-  Paid Minutes Used (overage):        0
-  Estimated Overage Cost:         $0.00
-============================================================
-============================================================
-  🤖 OpenAI Usage
-============================================================
-  Spending  [████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  24.9%
-            $12.4500 of $50.00 monthly limit
+## Prerequisites
 
-  Usage by Model:
-    GPT-4 Turbo                         $10.0000
-    GPT-3.5 Turbo                        $2.4500
+Before building, ensure you have the following installed:
 
-============================================================
-============================================================
-  🤖 DeepSeek Usage
-============================================================
-  Account Balance:  USD 45.0000
+| Tool | Version | Install |
+|---|---|---|
+| **Rust** | 1.70+ | [rustup.rs](https://rustup.rs) |
+| **Node.js** | 18+ | [nodejs.org](https://nodejs.org) |
+| **Tauri CLI** | v2 | `cargo install tauri-cli --version "^2"` |
 
-  Balance   [████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  90.0% remaining
-            USD 45.0000 of USD 50.00 remaining
-============================================================
-```
+### Platform-Specific Prerequisites
 
-## Requirements
+**Windows:**
+- Microsoft Visual Studio C++ Build Tools (or Visual Studio 2019/2022)
+- WebView2 Runtime (included in Windows 11; download for Windows 10)
 
-- Python 3.8+
-- `requests` library
-- GitHub personal access token with `read:org` scope (for org usage) or `copilot` scope (for user usage)
+**macOS:**
+- Xcode Command Line Tools: `xcode-select --install`
 
-## Installation
+---
+
+## Getting Started
+
+### 1. Clone the repository
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/bmhornback/Github-Gas-Gauge.git
+cd Github-Gas-Gauge
 ```
 
-## Usage
-
-### Personal usage
+### 2. Install frontend dependencies
 
 ```bash
-export GITHUB_TOKEN=ghp_yourtoken
-python gas_gauge.py
-```
-
-### Organization usage (requires org admin access)
-
-```bash
-python gas_gauge.py --org my-org
+npm install
 ```
 
 ### Show only Copilot section
@@ -134,6 +109,8 @@ python gas_gauge.py --providers-only --providers openai,deepseek
 
 ### Options
 
+```bash
+cargo tauri dev
 ```
 usage: gas_gauge.py [-h] [--token TOKEN] [--org ORG] [--year YEAR]
                     [--month MONTH] [--quota QUOTA]
@@ -160,131 +137,77 @@ options:
                               (implies --providers all when --providers not set)
 ```
 
-### Environment variables
+Built installers will appear in `src-tauri/target/release/bundle/`.
 
-| Variable | Description |
-|---|---|
-| `GITHUB_TOKEN` | GitHub personal access token (required for GitHub sections) |
-| `COPILOT_PLAN` | Your Copilot plan: `free`, `pro`, `business`, `enterprise` (default: `pro`) |
-| `COPILOT_QUOTA` | Monthly premium request quota override |
-| `OPENAI_API_KEY` | OpenAI API key — enables OpenAI usage gauge |
-| `OPENAI_MONTHLY_LIMIT` | Monthly spending limit in USD — enables OpenAI gauge bar |
-| `DEEPSEEK_API_KEY` | DeepSeek API key — enables DeepSeek balance gauge |
-| `DEEPSEEK_MONTHLY_LIMIT` | Credit limit in USD — enables DeepSeek gauge bar |
-| `ANTHROPIC_API_KEY` | Anthropic API key (stored for future API support) |
-| `PERPLEXITY_API_KEY` | Perplexity API key (stored for future API support) |
-| `GEMINI_API_KEY` | Google Gemini API key (stored for future API support) |
+---
 
-## External AI Provider Support
+## Getting a GitHub Personal Access Token (PAT)
 
-| Provider | Usage API | What's Tracked |
-|---|---|---|
-| **OpenAI** | ✅ `/v1/dashboard/billing/usage` | Spend (USD) + per-model breakdown |
-| **Anthropic** | ⚠️ No public API for individual keys | Key stored; view at console.anthropic.com |
-| **DeepSeek** | ✅ `/user/balance` | Credit balance remaining |
-| **Perplexity** | ⚠️ No public API available | Key stored for future support |
-| **Google Gemini** | ⚠️ No public API available | Key stored for future support |
+GGG requires a GitHub PAT to call the billing API.
 
-Set a `*_MONTHLY_LIMIT` env var (or configure in the desktop app Settings) to enable the gauge bar for cost/balance-based providers.
+1. Go to [github.com/settings/tokens/new](https://github.com/settings/tokens/new)
+2. Give it a descriptive name (e.g., `GitHub Gas Gauge`)
+3. Select the required scopes:
+   - **Personal account:** `user` → `read:user` (billing access is included)
+   - **Organization:** `read:org`
+4. Click **Generate token** and copy it
+5. Paste it into the GGG Settings panel
 
-## Monthly Quotas by Plan
+> ⚠️ Your token is stored locally on your machine in the app data directory. It is never transmitted anywhere except to the GitHub API.
 
-| Plan | Monthly Premium Requests |
-|---|---|
-| Free | 50 |
-| Pro / Individual | 300 |
-| Business | 300 per seat |
-| Enterprise | 1,000 per seat |
+---
 
-## Task Cost Estimates
+## Project Structure
 
-| Task Type | Approximate Cost | Description |
-|---|---|---|
-| Simple | ~1 request | Chat turn or inline suggestion with default model |
-| Complex | ~15 requests | Copilot coding agent task or advanced model chat |
-
-> **Note:** Actual costs vary by model. Some models (e.g., GPT-4.5) have higher multipliers.
-> See [GitHub docs on Copilot requests](https://docs.github.com/en/copilot/concepts/billing/copilot-requests) for details.
-
-## Model Multipliers
-
-| Model | Multiplier |
-|---|---|
-| gpt-4o | 1x |
-| gpt-4.1 | 1x |
-| gpt-4.5 | 50x |
-| gpt-5 | 1x |
-| claude-3.5-sonnet | 1x |
-| claude-3.7-sonnet | 1x |
-| gemini-2.0-flash | 0.25x |
-| gemini-2.5-pro | 1x |
-| o1 | 10x |
-| o3 | 10x |
-| o3-mini | 1x |
-
-## GitHub Actions
-
-Run this tool automatically via the included workflow:
-
-1. Go to **Actions** → **GitHub Gas Gauge** → **Run workflow**
-2. Optionally specify an org name, plan type, quota override, or which section to show (`both`, `copilot-only`, `actions-only`)
-3. Or add `COPILOT_TOKEN` to your repository secrets for a dedicated token
-
-The workflow also runs daily at 9am UTC via schedule.
-
-## Desktop App
-
-The repository includes a cross-platform desktop app built with **Tauri + Rust** for the backend and **React + TypeScript** for the UI (`src-tauri/` + `src/`).
-
-### Features
-- System tray icon that changes color (green/yellow/red) based on usage level
-- Live gas gauge UI with smooth animations for Copilot, Actions, and external providers
-- Configurable polling interval and threshold alerts (75%, 90%, 100%)
-- Provider API key management (OpenAI, Anthropic, DeepSeek, Perplexity, Gemini) with optional monthly limits
-- PAT and API key storage in your user config/app data directory (stored as unencrypted JSON; treat this directory as sensitive)
-- Dark mode UI
-
-### Building
-```bash
-# Install dependencies
-npm install
-
-# Run in development mode
-npm run tauri dev
-
-# Build for production (requires Rust toolchain)
-npm run tauri build
+```
+├── src-tauri/
+│   ├── src/
+│   │   ├── main.rs          # App entry point, system tray setup
+│   │   ├── billing.rs       # GitHub Billing REST API calls
+│   │   ├── config.rs        # PAT storage and user settings
+│   │   ├── alerts.rs        # Threshold logic and desktop notifications
+│   │   └── lib.rs           # Tauri command exports
+│   ├── Cargo.toml
+│   ├── tauri.conf.json
+│   └── build.rs
+├── src/
+│   ├── components/
+│   │   ├── GasGauge.tsx     # SVG-based circular/arc gauge component
+│   │   ├── OveragePanel.tsx # Shows overage spend if applicable
+│   │   ├── BalancePanel.tsx # Shows usage summary and breakdown
+│   │   └── Settings.tsx     # PAT input, polling interval, threshold config
+│   ├── App.tsx
+│   ├── main.tsx
+│   └── styles/
+│       └── app.css
+├── package.json
+├── vite.config.ts
+├── tsconfig.json
+└── index.html
 ```
 
-## Running Tests
-
-```bash
-python -m pytest test_gas_gauge.py -v
-```
+---
 
 ## Contributing
 
-Contributions are welcome! Here are some guidelines:
+Contributions are welcome! This is an open source project under the MIT license.
 
-1. **Fork** the repository and create a feature branch
-2. **Write tests** for any new functionality (see `test_gas_gauge.py` for patterns)
-3. **Run tests** before submitting: `python -m pytest test_gas_gauge.py -v`
-4. **Keep it simple** – the Python CLI and desktop app are parallel tracks; changes to one shouldn't break the other
-5. **Open a PR** with a clear description of what you changed and why
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit your changes: `git commit -m "feat: add my feature"`
+4. Push to your branch: `git push origin feature/my-feature`
+5. Open a Pull Request
 
-Please follow the existing code style (PEP 8 for Python, standard Rust/React conventions for the desktop app).
+Please follow the existing code style and include meaningful commit messages.
 
-## Roadmap
+---
 
-- [x] Python CLI — Copilot premium request gas gauge
-- [x] GitHub Actions workflow
-- [x] Actions billing gauge
-- [x] Multi-provider token gauges (OpenAI, Anthropic, DeepSeek, Perplexity, Gemini)
-- [ ] Desktop app (Windows + macOS) — Tauri + Rust *(scaffold in place)*
-- [ ] Mobile app (iOS + Android) — React Native or Capacitor wrapping the same provider APIs
-- [ ] Anthropic / Perplexity / Gemini usage APIs (when publicly available)
-- [ ] Prepaid balance tracking
-- [ ] Email/SMS threshold alerts
-- [ ] Historical usage charts
-- [ ] OS-backed secure credential storage (Keychain / Credential Manager / libsecret)
+## License
 
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+---
+
+## About HornToad Labs
+
+GitHub Gas Gauge is a sub-branded project under **HornToad Labs**, a collection of open source tools and utilities.

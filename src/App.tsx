@@ -4,221 +4,209 @@ import { listen } from "@tauri-apps/api/event";
 import GasGauge from "./components/GasGauge";
 import OveragePanel from "./components/OveragePanel";
 import BalancePanel from "./components/BalancePanel";
-import ProviderGauges, { type ProviderUsage } from "./components/ProviderGauges";
 import Settings from "./components/Settings";
 
-interface CopilotUsage {
-  used: number;
-  quota: number;
-  percent_used: number;
-  by_model: Record<string, number>;
-}
-
-interface ActionsUsage {
-  minutes_used: number;
+export interface BillingData {
+  total_minutes_used: number;
+  total_paid_minutes_used: number;
   included_minutes: number;
-  paid_minutes_used: number;
-  percent_used: number;
-  ubuntu_minutes: number;
-  macos_minutes: number;
-  windows_minutes: number;
+  minutes_used_breakdown: {
+    ubuntu: number;
+    macos: number;
+    windows: number;
+  };
 }
 
-interface BillingData {
-  copilot?: CopilotUsage;
-  actions?: ActionsUsage;
-  providers: ProviderUsage[];
-}
-
-interface AppConfig {
-  token: string;
+export interface AppConfig {
+  github_pat: string | null;
   use_org: boolean;
-  org_name: string;
-  poll_interval_minutes: number;
-  copilot_quota: number;
-  alert_75: boolean;
-  alert_90: boolean;
-  alert_100: boolean;
-  provider_keys: Record<string, string>;
-  provider_limits: Record<string, number>;
+  org_name: string | null;
+  polling_interval:
+    | "five_minutes"
+    | "fifteen_minutes"
+    | "thirty_minutes"
+    | "one_hour";
+  alert_thresholds: {
+    notify_at_75: boolean;
+    notify_at_90: boolean;
+    notify_at_100: boolean;
+  };
 }
+
+const POLLING_MINUTES: Record<AppConfig["polling_interval"], number> = {
+  five_minutes: 5,
+  fifteen_minutes: 15,
+  thirty_minutes: 30,
+  one_hour: 60,
+};
 
 type Tab = "dashboard" | "settings";
 
-export default function App() {
-  const [tab, setTab] = useState<Tab>("dashboard");
-  const [data, setData] = useState<BillingData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+function App() {
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [billing, setBilling] = useState<BillingData | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const refresh = useCallback(async () => {
+  const fetchBilling = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<BillingData>("get_billing_data");
-      setData(result);
+      const data = await invoke<BillingData>("get_billing_data");
+      setBilling(data);
       setLastUpdated(new Date());
     } catch (e) {
-      setError(String(e));
+      setError(typeof e === "string" ? e : "Failed to fetch billing data.");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const loadConfig = useCallback(async () => {
+  const fetchConfig = useCallback(async () => {
     try {
       const cfg = await invoke<AppConfig>("get_config");
       setConfig(cfg);
-      if (!cfg.token) {
-        setTab("settings");
+      return cfg;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const startPolling = useCallback(
+    (cfg: AppConfig) => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      const intervalMs = POLLING_MINUTES[cfg.polling_interval] * 60 * 1000;
+      pollingRef.current = setInterval(fetchBilling, intervalMs);
+    },
+    [fetchBilling]
+  );
+
+  useEffect(() => {
+    (async () => {
+      const cfg = await fetchConfig();
+      if (!cfg?.github_pat) {
+        setActiveTab("settings");
+        return;
       }
-    } catch (e) {
-      console.error("Failed to load config:", e);
-    }
-  }, []);
+      await fetchBilling();
+      startPolling(cfg);
+    })();
 
-  // Schedule next poll
-  const schedulePoll = useCallback(() => {
-    if (pollTimer.current) clearTimeout(pollTimer.current);
-    const intervalMs = (config?.poll_interval_minutes ?? 15) * 60 * 1000;
-    pollTimer.current = setTimeout(() => {
-      refresh().then(schedulePoll);
-    }, intervalMs);
-  }, [config?.poll_interval_minutes, refresh]);
+    // Listen for tray "Refresh Now" events.
+    const unlisten = listen("refresh-requested", () => fetchBilling());
 
-  // Initial load
-  useEffect(() => {
-    loadConfig();
-  }, [loadConfig]);
-
-  useEffect(() => {
-    if (config && config.token) {
-      refresh().then(schedulePoll);
-    }
     return () => {
-      if (pollTimer.current) clearTimeout(pollTimer.current);
-    };
-  }, [config?.token, schedulePoll]);
-
-  // Listen for background-poll events emitted by Rust
-  useEffect(() => {
-    const unlisten = listen<BillingData>("billing-updated", (event) => {
-      setData(event.payload);
-      setLastUpdated(new Date());
-    });
-    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [fetchBilling, fetchConfig, startPolling]);
 
-  // Listen for navigation events from tray menu
-  useEffect(() => {
-    const unlisten = listen("navigate-to-settings", () => {
-      setTab("settings");
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
+  const handleConfigSaved = useCallback(async () => {
+    const cfg = await fetchConfig();
+    if (cfg) startPolling(cfg);
+    await fetchBilling();
+    setActiveTab("dashboard");
+  }, [fetchConfig, fetchBilling, startPolling]);
 
-  const handleSaveConfig = async (newConfig: AppConfig) => {
-    await invoke("save_config", { new_config: newConfig });
-    setConfig(newConfig);
-    setTab("dashboard");
-    refresh();
-  };
+  const usagePct =
+    billing && billing.included_minutes > 0
+      ? (billing.total_minutes_used / billing.included_minutes) * 100
+      : 0;
 
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🔋 GitHub Gas Gauge</h1>
-        <nav className="tabs">
+        <div className="app-brand">
+          <span className="app-logo">⛽</span>
+          <div>
+            <h1 className="app-title">GitHub Gas Gauge</h1>
+            <p className="app-subtitle">A HornToad Labs Open Source Project</p>
+          </div>
+        </div>
+        <nav className="app-nav">
           <button
-            className={tab === "dashboard" ? "tab active" : "tab"}
-            onClick={() => setTab("dashboard")}
+            className={`nav-btn ${activeTab === "dashboard" ? "active" : ""}`}
+            onClick={() => setActiveTab("dashboard")}
           >
             Dashboard
           </button>
           <button
-            className={tab === "settings" ? "tab active" : "tab"}
-            onClick={() => setTab("settings")}
+            className={`nav-btn ${activeTab === "settings" ? "active" : ""}`}
+            onClick={() => setActiveTab("settings")}
           >
             Settings
           </button>
         </nav>
       </header>
 
-      {tab === "dashboard" && (
-        <main className="dashboard">
-          <div className="toolbar">
-            <button className="btn-refresh" onClick={refresh} disabled={loading}>
-              {loading ? "Refreshing…" : "↻ Refresh"}
-            </button>
-            {lastUpdated && (
-              <span className="last-updated">
-                Updated {lastUpdated.toLocaleTimeString()}
-              </span>
+      <main className="app-main">
+        {activeTab === "dashboard" && (
+          <div className="dashboard">
+            {error && (
+              <div className="error-banner">
+                <span>⚠️ {error}</span>
+                <button
+                  onClick={() => setActiveTab("settings")}
+                  className="btn-link"
+                >
+                  Open Settings
+                </button>
+              </div>
             )}
-          </div>
 
-          {error && <div className="error-banner">{error}</div>}
-
-          {!data && !loading && !error && (
-            <div className="empty-state">
-              <p>No data yet. Click Refresh or configure your token in Settings.</p>
+            <div className="gauge-section">
+              <GasGauge percentage={usagePct} loading={loading} />
+              {billing && (
+                <p className="minutes-label">
+                  {billing.total_minutes_used.toFixed(0)} minutes used of{" "}
+                  {billing.included_minutes.toFixed(0)} included
+                </p>
+              )}
             </div>
-          )}
 
-          {data?.copilot && (
-            <section className="gauge-section">
-              <h2>Copilot Premium Requests</h2>
-              <GasGauge
-                used={data.copilot.used}
-                total={data.copilot.quota}
-                label="requests"
+            {billing && billing.total_paid_minutes_used > 0 && (
+              <OveragePanel
+                paidMinutes={billing.total_paid_minutes_used}
+                breakdown={billing.minutes_used_breakdown}
               />
-              {data.copilot.used > data.copilot.quota && (
-                <OveragePanel
-                  overageCount={data.copilot.used - data.copilot.quota}
-                  unit="requests"
-                  costPerUnit={0}
-                />
+            )}
+
+            <BalancePanel billing={billing} />
+
+            <div className="action-row">
+              <button
+                className="btn-primary"
+                onClick={fetchBilling}
+                disabled={loading}
+              >
+                {loading ? "Refreshing…" : "Refresh Now"}
+              </button>
+              {lastUpdated && (
+                <span className="last-updated">
+                  Last updated: {lastUpdated.toLocaleTimeString()}
+                </span>
               )}
-            </section>
-          )}
+            </div>
+          </div>
+        )}
 
-          {data?.actions && (
-            <section className="gauge-section">
-              <h2>Actions Minutes</h2>
-              <GasGauge
-                used={data.actions.minutes_used}
-                total={data.actions.included_minutes}
-                label="minutes"
-              />
-              {data.actions.paid_minutes_used > 0 && (
-                <OveragePanel
-                  overageCount={data.actions.paid_minutes_used}
-                  unit="minutes"
-                  costPerUnit={0.008}
-                />
-              )}
-            </section>
-          )}
+        {activeTab === "settings" && (
+          <Settings
+            initialConfig={config}
+            onSaved={handleConfigSaved}
+            onCancel={() => setActiveTab("dashboard")}
+          />
+        )}
+      </main>
 
-          {data?.providers && data.providers.length > 0 && (
-            <ProviderGauges providers={data.providers} />
-          )}
-
-          <BalancePanel />
-        </main>
-      )}
-
-      {tab === "settings" && config && (
-        <Settings initialConfig={config} onSave={handleSaveConfig} />
-      )}
+      <footer className="app-footer">
+        <span>GitHub Gas Gauge · HornToad Labs · MIT License</span>
+      </footer>
     </div>
   );
 }
+
+export default App;

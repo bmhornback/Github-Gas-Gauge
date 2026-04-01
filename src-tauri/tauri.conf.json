@@ -1,33 +1,38 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
-  "identifier": "com.github-gas-gauge.app",
   "productName": "GitHub Gas Gauge",
   "version": "0.1.0",
+  "identifier": "com.horntoadlabs.github-gas-gauge",
+
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "frontendDist": "../dist"
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "withGlobalTauri": false,
     "windows": [
       {
         "title": "GitHub Gas Gauge",
-        "width": 520,
-        "height": 700,
+        "width": 900,
+        "height": 650,
+        "minWidth": 700,
+        "minHeight": 500,
         "resizable": true,
         "fullscreen": false,
-        "decorations": true
+        "center": true,
+        "visible": false
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/tray-green.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": false
-    },
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https:; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self'"
+      "csp": null
+    },
+    "trayIcon": {
+      "id": "main",
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false,
+      "title": "GitHub Gas Gauge",
+      "tooltip": "GitHub Gas Gauge"
     }
   },
   "bundle": {

@@ -1,158 +1,29 @@
-// GitHub Gas Gauge - Rust backend entry point
-// Handles system tray, background polling, and Tauri command registration.
-
+// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-mod alerts;
-mod billing;
-mod config;
-
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime,
+    AppHandle, Manager, State,
 };
 
-use crate::alerts::AlertTracker;
-use crate::billing::{fetch_billing_data, BillingData};
-use crate::config::{load_config_inner, AppConfig};
+use github_gas_gauge_lib::{alerts, billing, config, AppState};
 
-pub struct AppState {
-    pub config: Mutex<AppConfig>,
-    pub last_data: Mutex<Option<BillingData>>,
-    pub alert_tracker: Mutex<AlertTracker>,
-}
-
-// ── Tauri commands ─────────────────────────────────────────────────────────────
-
-#[tauri::command]
-async fn get_billing_data(state: tauri::State<'_, Arc<AppState>>) -> Result<BillingData, String> {
-    let config = state.config.lock().map_err(|e| e.to_string())?.clone();
-    let data = fetch_billing_data(&config).await?;
-    *state.last_data.lock().map_err(|e| e.to_string())? = Some(data.clone());
-    Ok(data)
-}
-
-#[tauri::command]
-fn get_config(state: tauri::State<'_, Arc<AppState>>) -> Result<AppConfig, String> {
-    let cfg = state.config.lock().map_err(|e| e.to_string())?.clone();
-    Ok(cfg)
-}
-
-#[tauri::command]
-fn save_config(
-    new_config: AppConfig,
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<(), String> {
-    config::save_config_inner(&new_config)?;
-    *state.config.lock().map_err(|e| e.to_string())? = new_config;
-    Ok(())
-}
-
-#[tauri::command]
-async fn refresh_now(state: tauri::State<'_, Arc<AppState>>) -> Result<BillingData, String> {
-    let config = state.config.lock().map_err(|e| e.to_string())?.clone();
-    let data = fetch_billing_data(&config).await?;
-    *state.last_data.lock().map_err(|e| e.to_string())? = Some(data.clone());
-    Ok(data)
-}
-
-// ── Tray icon helpers ──────────────────────────────────────────────────────────
-
-fn tray_icon_for_pct(pct: f64) -> &'static str {
-    if pct >= 0.90 {
-        "icons/tray-red.png"
-    } else if pct >= 0.75 {
-        "icons/tray-yellow.png"
-    } else {
-        "icons/tray-green.png"
-    }
-}
-
-fn update_tray_icon<R: Runtime>(app: &AppHandle<R>, pct: f64) {
-    if let Some(tray) = app.tray_by_id("main") {
-        let icon_path = tray_icon_for_pct(pct);
-        if let Ok(icon) = tauri::image::Image::from_path(
-            app.path().resource_dir().unwrap_or_default().join(icon_path),
-        ) {
-            let _ = tray.set_icon(Some(icon));
-        }
-    }
-}
-
-// ── Background polling loop ───────────────────────────────────────────────────
-
-fn start_polling(app: AppHandle, state: Arc<AppState>) {
-    tokio::spawn(async move {
-        loop {
-            let interval_mins = {
-                state
-                    .config
-                    .lock()
-                    .map(|c| c.poll_interval_minutes)
-                    .unwrap_or(15)
-            };
-            tokio::time::sleep(Duration::from_secs(interval_mins as u64 * 60)).await;
-
-            let config = match state.config.lock() {
-                Ok(c) => c.clone(),
-                Err(_) => continue,
-            };
-
-            if config.token.is_empty() {
-                continue;
-            }
-
-            match fetch_billing_data(&config).await {
-                Ok(data) => {
-                    let copilot_pct = data.copilot.as_ref().map_or(0.0, |c| c.percent_used);
-
-                    update_tray_icon(&app, copilot_pct);
-
-                    if let Ok(mut tracker) = state.alert_tracker.lock() {
-                        if let Ok(cfg) = state.config.lock() {
-                            alerts::check_and_fire(&app, &data, &cfg, &mut tracker);
-                        }
-                    }
-
-                    if let Ok(mut last) = state.last_data.lock() {
-                        *last = Some(data.clone());
-                    }
-
-                    let _ = app.emit("billing-updated", &data);
-                }
-                Err(e) => {
-                    eprintln!("Polling error: {e}");
-                }
-            }
-        }
-    });
-}
-
-// ── Main entry point ──────────────────────────────────────────────────────────
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    let config = load_config_inner().unwrap_or_default();
-    let state = Arc::new(AppState {
-        config: Mutex::new(config),
-        last_data: Mutex::new(None),
-        alert_tracker: Mutex::new(AlertTracker::new()),
-    });
-
-    let state_clone = Arc::clone(&state);
-
+fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .manage(state)
-        .setup(move |app| {
-            let app_handle = app.handle().clone();
-
-            // Build system tray menu
-            let open_item = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
+        .plugin(tauri_plugin_shell::init())
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![
+            get_billing_data,
+            get_config,
+            save_config_cmd,
+            refresh_now,
+        ])
+        .setup(|app| {
+            // Build system tray menu.
+            let open_item =
+                MenuItem::with_id(app, "open", "Open GitHub Gas Gauge", true, None::<&str>)?;
             let refresh_item =
                 MenuItem::with_id(app, "refresh", "Refresh Now", true, None::<&str>)?;
             let settings_item =
@@ -164,31 +35,18 @@ pub fn run() {
                 &[&open_item, &refresh_item, &settings_item, &quit_item],
             )?;
 
-            TrayIconBuilder::with_id("main")
+            let _tray = TrayIconBuilder::new()
                 .menu(&menu)
-                .on_menu_event(move |app, event| match event.id.as_ref() {
-                    "open" => {
+                .tooltip("GitHub Gas Gauge")
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "open" | "settings" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
                     }
                     "refresh" => {
-                        let state = app.state::<Arc<AppState>>();
-                        let cfg = state.config.lock().unwrap().clone();
-                        let app2 = app.clone();
-                        tokio::spawn(async move {
-                            if let Ok(data) = fetch_billing_data(&cfg).await {
-                                let _ = app2.emit("billing-updated", &data);
-                            }
-                        });
-                    }
-                    "settings" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            let _ = app.emit("navigate-to-settings", ());
-                        }
+                        app.emit("refresh-requested", ()).ok();
                     }
                     "quit" => {
                         app.exit(0);
@@ -211,20 +69,105 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            start_polling(app_handle, state_clone);
-
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            get_billing_data,
-            get_config,
-            save_config,
-            refresh_now,
-        ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running GitHub Gas Gauge");
 }
 
-fn main() {
-    run();
+// ─── Tauri Commands ──────────────────────────────────────────────────────────
+
+/// Fetch current billing data from the GitHub API and fire any pending notifications.
+#[tauri::command]
+fn get_billing_data(
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<billing::BillingData, String> {
+    fetch_and_notify(&app, &state)
 }
+
+/// Trigger an immediate billing data refresh (bound to tray "Refresh Now").
+#[tauri::command]
+fn refresh_now(app: AppHandle, state: State<AppState>) -> Result<billing::BillingData, String> {
+    fetch_and_notify(&app, &state)
+}
+
+/// Load configuration from disk.
+#[tauri::command]
+fn get_config() -> Result<config::AppConfig, String> {
+    config::load_config()
+}
+
+/// Persist configuration to disk.
+#[tauri::command]
+fn save_config_cmd(new_config: config::AppConfig) -> Result<(), String> {
+    config::save_config(&new_config)
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn fetch_and_notify(
+    app: &AppHandle,
+    state: &State<AppState>,
+) -> Result<billing::BillingData, String> {
+    let cfg = config::load_config()?;
+
+    let token = cfg
+        .github_pat
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| {
+            "No GitHub PAT configured. Please add your token in Settings.".to_string()
+        })?;
+
+    let data = if cfg.use_org {
+        let org = cfg
+            .org_name
+            .as_deref()
+            .filter(|o| !o.is_empty())
+            .ok_or_else(|| {
+                "Organization name is required when org mode is enabled.".to_string()
+            })?;
+        billing::fetch_org_billing(token, org)?
+    } else {
+        billing::fetch_user_billing(token)?
+    };
+
+    // Cache the latest billing data.
+    if let Ok(mut guard) = state.last_billing_data.lock() {
+        *guard = Some(data.clone());
+    }
+
+    // Determine which thresholds to fire and send OS notifications.
+    let usage_pct = data.usage_percentage();
+    let thresholds = alerts::thresholds_to_fire(
+        usage_pct,
+        cfg.alert_thresholds.notify_at_75,
+        cfg.alert_thresholds.notify_at_90,
+        cfg.alert_thresholds.notify_at_100,
+        &state.alert_tracker,
+    );
+
+    for threshold in thresholds {
+        state.alert_tracker.mark_notified(threshold);
+        send_threshold_notification(app, threshold, usage_pct);
+    }
+
+    Ok(data)
+}
+
+fn send_threshold_notification(app: &AppHandle, threshold: u8, usage_pct: f64) {
+    use tauri_plugin_notification::NotificationExt;
+    let title = format!("⚠️ GitHub Actions Usage at {}%", threshold);
+    let body = format!(
+        "You've used {:.1}% of your included Actions minutes. {}",
+        usage_pct,
+        if threshold >= 100 {
+            "You may be incurring overage charges."
+        } else {
+            "Consider reviewing your workflow usage."
+        }
+    );
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+

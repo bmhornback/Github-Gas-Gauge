@@ -1,77 +1,95 @@
-// App configuration — stored as JSON in the OS app-data directory.
-
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 
-const CONFIG_FILE_NAME: &str = "gas-gauge-config.json";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppConfig {
-    /// GitHub personal access token.
-    pub token: String,
-    /// Use an organisation rather than the authenticated user.
-    pub use_org: bool,
-    /// Organisation name (only used when `use_org` is true).
-    pub org_name: String,
-    /// Polling interval in minutes.
-    pub poll_interval_minutes: u64,
-    /// Copilot monthly quota (premium requests).
-    pub copilot_quota: u64,
-    /// Fire notification at 75% usage.
-    pub alert_75: bool,
-    /// Fire notification at 90% usage.
-    pub alert_90: bool,
-    /// Fire notification at 100% usage.
-    pub alert_100: bool,
-    /// External AI provider API keys keyed by provider ID
-    /// ("openai", "anthropic", "deepseek", "perplexity", "gemini").
-    #[serde(default)]
-    pub provider_keys: HashMap<String, String>,
-    /// Optional monthly spending / credit limits per provider (USD).
-    #[serde(default)]
-    pub provider_limits: HashMap<String, f64>,
+/// Polling interval options (in minutes).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PollingInterval {
+    FiveMinutes,
+    FifteenMinutes,
+    ThirtyMinutes,
+    OneHour,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            token: String::new(),
-            use_org: false,
-            org_name: String::new(),
-            poll_interval_minutes: 15,
-            copilot_quota: 300,
-            alert_75: true,
-            alert_90: true,
-            alert_100: true,
-            provider_keys: HashMap::new(),
-            provider_limits: HashMap::new(),
+impl PollingInterval {
+    pub fn as_minutes(&self) -> u64 {
+        match self {
+            PollingInterval::FiveMinutes => 5,
+            PollingInterval::FifteenMinutes => 15,
+            PollingInterval::ThirtyMinutes => 30,
+            PollingInterval::OneHour => 60,
         }
     }
 }
 
-fn config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|mut p| {
-        p.push("github-gas-gauge");
-        p.push(CONFIG_FILE_NAME);
-        p
-    })
+impl Default for PollingInterval {
+    fn default() -> Self {
+        PollingInterval::FifteenMinutes
+    }
 }
 
-pub fn load_config_inner() -> Result<AppConfig, String> {
-    let path = config_path().ok_or("Could not determine config directory")?;
+/// Alert threshold configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlertThresholds {
+    pub notify_at_75: bool,
+    pub notify_at_90: bool,
+    pub notify_at_100: bool,
+}
+
+impl Default for AlertThresholds {
+    fn default() -> Self {
+        Self {
+            notify_at_75: true,
+            notify_at_90: true,
+            notify_at_100: true,
+        }
+    }
+}
+
+/// Full app configuration stored on disk.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppConfig {
+    /// GitHub Personal Access Token (stored in plain text in local config).
+    pub github_pat: Option<String>,
+    /// Whether to monitor an org (true) or personal account (false).
+    pub use_org: bool,
+    /// Organization name (used when use_org is true).
+    pub org_name: Option<String>,
+    /// How often to poll the GitHub API.
+    pub polling_interval: PollingInterval,
+    /// Which thresholds fire notifications.
+    pub alert_thresholds: AlertThresholds,
+}
+
+/// Return the path to the config file in the app data directory.
+pub fn config_path() -> PathBuf {
+    let base = dirs::data_local_dir()
+        .or_else(|| dirs::home_dir())
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    base.join("github-gas-gauge").join("config.json")
+}
+
+/// Load configuration from disk. Returns default config if the file does not exist.
+pub fn load_config() -> Result<AppConfig, String> {
+    let path = config_path();
     if !path.exists() {
         return Ok(AppConfig::default());
     }
-    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&text).map_err(|e| e.to_string())
+    let contents =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read config: {}", e))?;
+    serde_json::from_str(&contents).map_err(|e| format!("Failed to parse config: {}", e))
 }
 
-pub fn save_config_inner(config: &AppConfig) -> Result<(), String> {
-    let path = config_path().ok_or("Could not determine config directory")?;
+/// Save configuration to disk, creating directories as needed.
+pub fn save_config(config: &AppConfig) -> Result<(), String> {
+    let path = config_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
     }
-    let text = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    std::fs::write(&path, text).map_err(|e| e.to_string())
+    let contents =
+        serde_json::to_string_pretty(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    fs::write(&path, contents).map_err(|e| format!("Failed to write config: {}", e))
 }
