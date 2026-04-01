@@ -1,6 +1,6 @@
 # ⛽ GitHub Gas Gauge (GGG)
 
-A CLI tool and GitHub Action to view your GitHub Copilot premium request consumption and estimate how many simple or complex tasks you have remaining in the current billing period. Also reports GitHub Actions minutes usage and external AI provider token consumption — all in one place.
+A CLI tool and desktop application to view your GitHub Copilot premium request consumption and estimate how many simple or complex tasks you have remaining in the current billing period. Also reports GitHub Actions minutes usage and external AI provider token consumption — all in one place.
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%20v2-blue?logo=tauri)](https://tauri.app)
@@ -18,16 +18,14 @@ A CLI tool and GitHub Action to view your GitHub Copilot premium request consump
 
 ---
 
-```
-
-GitHub Gas Gauge (GGG) is a cross-platform desktop application (Windows + macOS) that monitors your **GitHub Actions billing usage** and displays it as a visual "Gas Gauge" — so you always know how much of your included minutes remain before you incur overage charges.
+GitHub Gas Gauge (GGG) is available as both a **Python CLI tool** and a **cross-platform desktop application** (Windows + macOS). The CLI provides quick terminal-based reporting, while the desktop app monitors your usage continuously from the system tray.
 
 ### Features
 
-- ⛽ **Visual Gas Gauge** — SVG arc-based semicircular gauge with color zones (🟢 green / 🟡 yellow / 🔴 red)
+- ⛽ **Visual Gas Gauge** — color-coded bar (CLI) or SVG arc gauge (desktop) with green / yellow / red zones
 - 🔔 **Desktop Notifications** — OS notifications at 75%, 90%, and 100% usage thresholds
 - 🗂️ **System Tray Integration** — Lives quietly in your system tray; left-click to open
-- 📊 **Usage Breakdown** — Minutes used by Ubuntu, macOS, and Windows runners
+- 📊 **Usage Breakdown** — Requests or minutes used by model, product, and runner OS
 - ⚠️ **Overage Panel** — Shows paid overage minutes and estimated cost
 - ⚙️ **Settings** — PAT input, org/personal toggle, polling interval, notification thresholds
 - 🔄 **Auto-polling** — Configurable polling interval (5 min / 15 min / 30 min / 1 hour)
@@ -43,6 +41,14 @@ GitHub Gas Gauge (GGG) is a cross-platform desktop application (Windows + macOS)
 
 ## Prerequisites
 
+### CLI Tool
+
+| Tool | Version | Install |
+|---|---|---|
+| **Python** | 3.8+ | [python.org](https://www.python.org) |
+
+### Desktop Application
+
 Before building, ensure you have the following installed:
 
 | Tool | Version | Install |
@@ -51,7 +57,7 @@ Before building, ensure you have the following installed:
 | **Node.js** | 18+ | [nodejs.org](https://nodejs.org) |
 | **Tauri CLI** | v2 | `cargo install tauri-cli --version "^2"` |
 
-### Platform-Specific Prerequisites
+#### Platform-Specific Prerequisites
 
 **Windows:**
 - Microsoft Visual Studio C++ Build Tools (or Visual Studio 2019/2022)
@@ -71,25 +77,64 @@ git clone https://github.com/bmhornback/Github-Gas-Gauge.git
 cd Github-Gas-Gauge
 ```
 
-### 2. Install frontend dependencies
+### 2a. CLI Tool Setup
+
+Install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Set your GitHub token and run:
+
+```bash
+export GITHUB_TOKEN=ghp_...
+python gas_gauge.py
+```
+
+### 2b. Desktop App Setup
+
+Install frontend dependencies:
 
 ```bash
 npm install
 ```
 
-### Show only Copilot section
+Run the app in development mode:
 
 ```bash
-python gas_gauge.py --copilot-only
+cargo tauri dev
 ```
 
-### Show only Actions billing
+Build a distributable installer:
 
 ```bash
+cargo tauri build
+```
+
+Built installers will appear in `src-tauri/target/release/bundle/`.
+
+---
+
+## CLI Usage
+
+### Basic usage
+
+```bash
+# Check your personal GitHub Copilot usage (reads GITHUB_TOKEN from environment)
+python gas_gauge.py
+
+# Check an organization's usage
+python gas_gauge.py --org my-org
+
+# Show only Copilot section
+python gas_gauge.py --copilot-only
+
+# Show only Actions billing
 python gas_gauge.py --actions-only
 ```
 
-### Show external AI provider gauges
+### External AI provider gauges
 
 ```bash
 # Show specific providers alongside GitHub sections
@@ -107,10 +152,8 @@ python gas_gauge.py --providers-only
 python gas_gauge.py --providers-only --providers openai,deepseek
 ```
 
-### Options
+### CLI Options
 
-```bash
-cargo tauri dev
 ```
 usage: gas_gauge.py [-h] [--token TOKEN] [--org ORG] [--year YEAR]
                     [--month MONTH] [--quota QUOTA]
@@ -137,8 +180,6 @@ options:
                               (implies --providers all when --providers not set)
 ```
 
-Built installers will appear in `src-tauri/target/release/bundle/`.
-
 ---
 
 ## Getting a GitHub Personal Access Token (PAT)
@@ -157,9 +198,32 @@ GGG requires a GitHub PAT to call the billing API.
 
 ---
 
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `GITHUB_TOKEN` | GitHub personal access token (required for GitHub sections) |
+| `COPILOT_PLAN` | Copilot plan: `free`, `pro`, `business`, `enterprise` (default: `pro`) |
+| `COPILOT_QUOTA` | Monthly premium request quota override |
+| `OPENAI_API_KEY` | OpenAI API key (enables OpenAI usage gauge) |
+| `OPENAI_MONTHLY_LIMIT` | Monthly spending limit in USD (enables OpenAI gauge bar) |
+| `DEEPSEEK_API_KEY` | DeepSeek API key (enables DeepSeek balance gauge) |
+| `DEEPSEEK_MONTHLY_LIMIT` | Credit limit in USD (enables DeepSeek gauge bar) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (set for future API support) |
+| `ANTHROPIC_MONTHLY_LIMIT` | Monthly spending limit for Anthropic |
+| `PERPLEXITY_API_KEY` | Perplexity API key (set for future API support) |
+| `PERPLEXITY_MONTHLY_LIMIT` | Monthly spending limit for Perplexity |
+| `GEMINI_API_KEY` | Google Gemini API key (set for future API support) |
+| `GEMINI_MONTHLY_LIMIT` | Monthly spending limit for Gemini |
+
+---
+
 ## Project Structure
 
 ```
+├── gas_gauge.py             # Python CLI tool
+├── test_gas_gauge.py        # CLI unit tests
+├── requirements.txt         # Python dependencies
 ├── src-tauri/
 │   ├── src/
 │   │   ├── main.rs          # App entry point, system tray setup
@@ -175,6 +239,7 @@ GGG requires a GitHub PAT to call the billing API.
 │   │   ├── GasGauge.tsx     # SVG-based circular/arc gauge component
 │   │   ├── OveragePanel.tsx # Shows overage spend if applicable
 │   │   ├── BalancePanel.tsx # Shows usage summary and breakdown
+│   │   ├── ProviderGauges.tsx # External AI provider gauge cards
 │   │   └── Settings.tsx     # PAT input, polling interval, threshold config
 │   ├── App.tsx
 │   ├── main.tsx
