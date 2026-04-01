@@ -18,10 +18,14 @@ on:
         description: "Monthly quota override (leave blank to use plan default)"
         required: false
         default: ""
+      section:
+        description: "Which section to show: both, copilot-only, actions-only"
+        required: false
+        default: "both"
 
 jobs:
   gas-gauge:
-    name: Check Copilot Usage
+    name: Check GitHub Usage
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,9 +48,16 @@ jobs:
           COPILOT_PLAN: ${{ github.event.inputs.plan || 'pro' }}
           COPILOT_QUOTA: ${{ github.event.inputs.quota || '' }}
         run: |
-          python gas_gauge.py \
-            --plan "${{ github.event.inputs.plan || 'pro' }}" \
-            ${{ github.event.inputs.quota && format('--quota {0}', github.event.inputs.quota) || '' }}
+          ARGS="--plan ${{ github.event.inputs.plan || 'pro' }}"
+          if [ -n "${{ github.event.inputs.quota }}" ]; then
+            ARGS="$ARGS --quota ${{ github.event.inputs.quota }}"
+          fi
+          if [ "${{ github.event.inputs.section }}" = "copilot-only" ]; then
+            ARGS="$ARGS --copilot-only"
+          elif [ "${{ github.event.inputs.section }}" = "actions-only" ]; then
+            ARGS="$ARGS --actions-only"
+          fi
+          python gas_gauge.py $ARGS
 
       - name: Run GitHub Gas Gauge (organization)
         if: ${{ github.event.inputs.org != '' && github.event_name != 'schedule' }}
@@ -55,7 +66,13 @@ jobs:
           COPILOT_PLAN: ${{ github.event.inputs.plan || 'pro' }}
           COPILOT_QUOTA: ${{ github.event.inputs.quota || '' }}
         run: |
-          python gas_gauge.py \
-            --org "${{ github.event.inputs.org }}" \
-            --plan "${{ github.event.inputs.plan || 'pro' }}" \
-            ${{ github.event.inputs.quota && format('--quota {0}', github.event.inputs.quota) || '' }}
+          ARGS="--org ${{ github.event.inputs.org }} --plan ${{ github.event.inputs.plan || 'pro' }}"
+          if [ -n "${{ github.event.inputs.quota }}" ]; then
+            ARGS="$ARGS --quota ${{ github.event.inputs.quota }}"
+          fi
+          if [ "${{ github.event.inputs.section }}" = "copilot-only" ]; then
+            ARGS="$ARGS --copilot-only"
+          elif [ "${{ github.event.inputs.section }}" = "actions-only" ]; then
+            ARGS="$ARGS --actions-only"
+          fi
+          python gas_gauge.py $ARGS

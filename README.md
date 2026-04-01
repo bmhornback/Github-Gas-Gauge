@@ -1,17 +1,24 @@
 # ⛽ GitHub Gas Gauge (GGG)
 
-> **Know before you run out of gas.**
+A CLI tool and GitHub Action to view your GitHub Copilot premium request consumption and estimate how many simple or complex tasks you have remaining in the current billing period. Also reports GitHub Actions minutes usage and external AI provider token consumption — all in one place.
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%20v2-blue?logo=tauri)](https://tauri.app)
 [![Built with Rust](https://img.shields.io/badge/Backend-Rust-orange?logo=rust)](https://www.rust-lang.org)
 [![React Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61dafb?logo=react)](https://reactjs.org)
 
-**A HornToad Labs Open Source Project**
+- **Visual gas gauge** showing used vs. remaining premium requests
+- **Task estimates** – see how many simple (chat) or complex (coding agent) tasks remain
+- **Per-model breakdown** of usage
+- **Actions billing** – see your GitHub Actions minutes used, included, and overage cost
+- **Multi-provider token gauges** – track token/credit consumption for OpenAI, Anthropic, DeepSeek, Perplexity, and Google Gemini
+- **Personal or organization** usage reporting
+- **GitHub Action** for automated daily reporting
+- **Desktop app** (Tauri + Rust + React) — system tray icon, live gauges, threshold alerts
 
 ---
 
-## What is GitHub Gas Gauge?
+```
 
 GitHub Gas Gauge (GGG) is a cross-platform desktop application (Windows + macOS) that monitors your **GitHub Actions billing usage** and displays it as a visual "Gas Gauge" — so you always know how much of your included minutes remain before you incur overage charges.
 
@@ -70,20 +77,64 @@ cd Github-Gas-Gauge
 npm install
 ```
 
-### 3. Run in development mode
+### Show only Copilot section
+
+```bash
+python gas_gauge.py --copilot-only
+```
+
+### Show only Actions billing
+
+```bash
+python gas_gauge.py --actions-only
+```
+
+### Show external AI provider gauges
+
+```bash
+# Show specific providers alongside GitHub sections
+export OPENAI_API_KEY=sk-...
+export OPENAI_MONTHLY_LIMIT=50
+python gas_gauge.py --providers openai
+
+# Show all configured external providers
+python gas_gauge.py --providers all
+
+# Show only external providers (skip GitHub/Actions sections)
+python gas_gauge.py --providers-only
+
+# Show specific providers only
+python gas_gauge.py --providers-only --providers openai,deepseek
+```
+
+### Options
 
 ```bash
 cargo tauri dev
 ```
+usage: gas_gauge.py [-h] [--token TOKEN] [--org ORG] [--year YEAR]
+                    [--month MONTH] [--quota QUOTA]
+                    [--plan {free,pro,individual,business,enterprise}]
+                    [--no-color] [--json]
+                    [--show-actions] [--actions-only] [--copilot-only]
+                    [--providers PROVIDER[,...]] [--providers-only]
 
-### 4. Build for production
-
-```bash
-# Windows
-cargo tauri build
-
-# macOS
-cargo tauri build
+options:
+  --token TOKEN               GitHub personal access token (default: $GITHUB_TOKEN)
+  --org ORG                   Organization name (for org-level usage)
+  --year YEAR                 Year to query (default: current year)
+  --month MONTH               Month to query, 1-12 (default: current month)
+  --quota QUOTA               Monthly premium request quota override
+  --plan PLAN                 Copilot plan: free, pro, business, enterprise (default: pro)
+  --no-color                  Disable color output
+  --json                      Output raw JSON usage data (Copilot only)
+  --show-actions              Include Actions billing section (default: True)
+  --actions-only              Show only Actions billing, skip Copilot section
+  --copilot-only              Show only Copilot section, skip Actions billing
+  --providers PROVIDER[,...]  External providers to show, or 'all'
+                              (openai, anthropic, deepseek, perplexity, gemini)
+  --providers-only            Skip GitHub sections; show only external providers
+                              (implies --providers all when --providers not set)
 ```
 
 Built installers will appear in `src-tauri/target/release/bundle/`.
