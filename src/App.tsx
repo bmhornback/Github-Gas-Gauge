@@ -101,8 +101,7 @@ export default function App() {
     return () => {
       if (pollTimer.current) clearTimeout(pollTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config?.token]);
+  }, [config?.token, schedulePoll]);
 
   // Listen for background-poll events emitted by Rust
   useEffect(() => {
@@ -126,7 +125,7 @@ export default function App() {
   }, []);
 
   const handleSaveConfig = async (newConfig: AppConfig) => {
-    await invoke("save_config", { newConfig });
+    await invoke("save_config", { new_config: newConfig });
     setConfig(newConfig);
     setTab("dashboard");
     refresh();
@@ -207,6 +206,10 @@ export default function App() {
                 />
               )}
             </section>
+          )}
+
+          {data?.providers && data.providers.length > 0 && (
+            <ProviderGauges providers={data.providers} />
           )}
 
           <BalancePanel />

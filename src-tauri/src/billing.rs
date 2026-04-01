@@ -109,17 +109,17 @@ pub struct ProviderUsage {
     pub available: bool,
     /// "cost" or "balance"
     pub billing_type: String,
-    /// Total spend in USD this period (cost-based providers).
-    pub cost_usd: f64,
-    /// Remaining credit balance in USD (balance-based providers).
-    pub balance_usd: f64,
+    /// Total spend in the provider's native currency this period (cost-based providers).
+    pub cost: f64,
+    /// Remaining credit balance in the provider's native currency (balance-based providers).
+    pub balance: f64,
     /// Currency code for balance-based providers (e.g. "USD", "CNY").
     pub currency: String,
-    /// Optional user-defined monthly limit in USD.
-    pub limit_usd: Option<f64>,
-    /// Percentage used (0.0–1.0). For balance providers: spend / limit.
+    /// Optional user-defined monthly limit in the same currency as cost/balance.
+    pub limit: Option<f64>,
+    /// Percentage used (0.0–1.0). For balance providers: (limit - balance) / limit.
     pub percent_used: f64,
-    /// Per-model cost breakdown (USD).
+    /// Per-model cost breakdown (in provider's native currency).
     pub by_model: HashMap<String, f64>,
     /// Human-readable note when `available` is false.
     pub note: Option<String>,
@@ -132,10 +132,10 @@ impl Default for ProviderUsage {
             name: String::new(),
             available: false,
             billing_type: "cost".to_string(),
-            cost_usd: 0.0,
-            balance_usd: 0.0,
+            cost: 0.0,
+            balance: 0.0,
             currency: "USD".to_string(),
-            limit_usd: None,
+            limit: None,
             percent_used: 0.0,
             by_model: HashMap::new(),
             note: None,
@@ -332,20 +332,20 @@ async fn fetch_openai_usage(api_key: &str, limit_usd: Option<f64>) -> ProviderUs
     };
 
     // total_usage is in USD cents
-    let cost_usd = data.total_usage.unwrap_or(0.0) / 100.0;
+    let cost = data.total_usage.unwrap_or(0.0) / 100.0;
 
     let mut by_model: HashMap<String, f64> = HashMap::new();
     for day in data.daily_costs.unwrap_or_default() {
         for item in day.line_items.unwrap_or_default() {
             let name = item.name.unwrap_or_else(|| "unknown".to_string());
-            let cost = item.cost.unwrap_or(0.0) / 100.0;
-            *by_model.entry(name).or_insert(0.0) += cost;
+            let item_cost = item.cost.unwrap_or(0.0) / 100.0;
+            *by_model.entry(name).or_insert(0.0) += item_cost;
         }
     }
 
     let percent_used = limit_usd
         .filter(|&l| l > 0.0)
-        .map(|l| (cost_usd / l).min(1.0))
+        .map(|l| (cost / l).min(1.0))
         .unwrap_or(0.0);
 
     ProviderUsage {
@@ -353,8 +353,8 @@ async fn fetch_openai_usage(api_key: &str, limit_usd: Option<f64>) -> ProviderUs
         name: "OpenAI".to_string(),
         available: true,
         billing_type: "cost".to_string(),
-        cost_usd,
-        limit_usd,
+        cost,
+        limit: limit_usd,
         percent_used,
         by_model,
         ..Default::default()
@@ -419,7 +419,7 @@ async fn fetch_deepseek_balance(api_key: &str, limit_usd: Option<f64>) -> Provid
     };
 
     let balance_infos = data.balance_infos.unwrap_or_default();
-    let (balance_usd, currency) = balance_infos
+    let (balance, currency) = balance_infos
         .first()
         .map(|info| {
             let bal = info
@@ -437,7 +437,7 @@ async fn fetch_deepseek_balance(api_key: &str, limit_usd: Option<f64>) -> Provid
 
     let percent_used = limit_usd
         .filter(|&l| l > 0.0)
-        .map(|l| ((l - balance_usd) / l).clamp(0.0, 1.0))
+        .map(|l| ((l - balance) / l).clamp(0.0, 1.0))
         .unwrap_or(0.0);
 
     ProviderUsage {
@@ -445,9 +445,9 @@ async fn fetch_deepseek_balance(api_key: &str, limit_usd: Option<f64>) -> Provid
         name: "DeepSeek".to_string(),
         available: true,
         billing_type: "balance".to_string(),
-        balance_usd,
+        balance,
         currency,
-        limit_usd,
+        limit: limit_usd,
         percent_used,
         ..Default::default()
     }
@@ -556,61 +556,54 @@ pub async fn fetch_billing_data(config: &AppConfig) -> Result<BillingData, Strin
     Ok(BillingData { copilot, actions, providers })
 }
 
-/// Fetch usage data for all configured external AI providers concurrently.
+/// Fetch usage data for all configured external AI providers.
+/// Only providers with a configured API key are included in the results.
 pub async fn fetch_all_providers(config: &AppConfig) -> Vec<ProviderUsage> {
     let mut results = Vec::new();
 
-    // OpenAI
+    // OpenAI — only if API key is configured
     let openai_key = config.provider_keys.get("openai").cloned().unwrap_or_default();
     if !openai_key.is_empty() {
         let limit = config.provider_limits.get("openai").copied();
         results.push(fetch_openai_usage(&openai_key, limit).await);
-    } else {
+    }
+
+    // Anthropic — no public usage API; include if key is configured so user sees status
+    let anthropic_key = config.provider_keys.get("anthropic").cloned().unwrap_or_default();
+    if !anthropic_key.is_empty() {
         results.push(unavailable_provider(
-            "openai",
-            "OpenAI",
-            "Set OPENAI_API_KEY in Settings to enable.",
+            "anthropic",
+            "Anthropic",
+            "No public usage API for individual keys. View at https://console.anthropic.com/settings/usage",
         ));
     }
 
-    // Anthropic
-    let anthropic_key = config.provider_keys.get("anthropic").cloned().unwrap_or_default();
-    results.push(unavailable_provider(
-        "anthropic",
-        "Anthropic",
-        if anthropic_key.is_empty() {
-            "No public usage API for individual keys. View at https://console.anthropic.com/settings/usage"
-        } else {
-            "No public usage API for individual keys. View at https://console.anthropic.com/settings/usage"
-        },
-    ));
-
-    // DeepSeek
+    // DeepSeek — only if API key is configured
     let deepseek_key = config.provider_keys.get("deepseek").cloned().unwrap_or_default();
     if !deepseek_key.is_empty() {
         let limit = config.provider_limits.get("deepseek").copied();
         results.push(fetch_deepseek_balance(&deepseek_key, limit).await);
-    } else {
+    }
+
+    // Perplexity — no public usage API; include if key is configured so user sees status
+    let perplexity_key = config.provider_keys.get("perplexity").cloned().unwrap_or_default();
+    if !perplexity_key.is_empty() {
         results.push(unavailable_provider(
-            "deepseek",
-            "DeepSeek",
-            "Set DeepSeek API key in Settings to enable.",
+            "perplexity",
+            "Perplexity",
+            "No public usage API available. View at https://www.perplexity.ai/settings/api",
         ));
     }
 
-    // Perplexity
-    results.push(unavailable_provider(
-        "perplexity",
-        "Perplexity",
-        "No public usage API available. View at https://www.perplexity.ai/settings/api",
-    ));
-
-    // Gemini
-    results.push(unavailable_provider(
-        "gemini",
-        "Google Gemini",
-        "No public usage API available. View at https://aistudio.google.com/",
-    ));
+    // Gemini — no public usage API; include if key is configured so user sees status
+    let gemini_key = config.provider_keys.get("gemini").cloned().unwrap_or_default();
+    if !gemini_key.is_empty() {
+        results.push(unavailable_provider(
+            "gemini",
+            "Google Gemini",
+            "No public usage API available. View at https://aistudio.google.com/",
+        ));
+    }
 
     results
 }

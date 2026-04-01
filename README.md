@@ -241,7 +241,7 @@ The repository includes a cross-platform desktop app built with **Tauri + Rust**
 - Live gas gauge UI with smooth animations for Copilot, Actions, and external providers
 - Configurable polling interval and threshold alerts (75%, 90%, 100%)
 - Provider API key management (OpenAI, Anthropic, DeepSeek, Perplexity, Gemini) with optional monthly limits
-- Secure PAT and API key storage in local app data directory
+- PAT and API key storage in your user config/app data directory (stored as unencrypted JSON; treat this directory as sensitive)
 - Dark mode UI
 
 ### Building
@@ -281,8 +281,10 @@ Please follow the existing code style (PEP 8 for Python, standard Rust/React con
 - [x] Actions billing gauge
 - [x] Multi-provider token gauges (OpenAI, Anthropic, DeepSeek, Perplexity, Gemini)
 - [ ] Desktop app (Windows + macOS) — Tauri + Rust *(scaffold in place)*
+- [ ] Mobile app (iOS + Android) — React Native or Capacitor wrapping the same provider APIs
 - [ ] Anthropic / Perplexity / Gemini usage APIs (when publicly available)
 - [ ] Prepaid balance tracking
 - [ ] Email/SMS threshold alerts
 - [ ] Historical usage charts
+- [ ] OS-backed secure credential storage (Keychain / Credential Manager / libsecret)
 

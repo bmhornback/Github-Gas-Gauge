@@ -2,7 +2,7 @@
  * Prepaid balance panel.
  * The GitHub Billing API does not expose prepaid credit balance in a standard
  * endpoint yet, so this panel shows a graceful "not available" state by default.
- * When the API becomes available, pass the balance and limit props.
+ * When the API becomes available, pass the balance (remaining) and limit props.
  */
 interface BalancePanelProps {
   balance?: number;
@@ -21,19 +21,19 @@ export default function BalancePanel({ balance, limit }: BalancePanelProps) {
     );
   }
 
+  // balance is the remaining amount; pct reflects how much is still available
   const pct = limit > 0 ? Math.min(balance / limit, 1) : 0;
-  const remaining = limit - balance;
 
   return (
     <div className="balance-panel">
       <h3>💳 Prepaid Balance</h3>
       <p>
-        <strong>${remaining.toFixed(2)}</strong> remaining of ${limit.toFixed(2)}
+        <strong>${balance.toFixed(2)}</strong> remaining of ${limit.toFixed(2)}
       </p>
       <div className="balance-bar-track">
         <div
           className="balance-bar-fill"
-          style={{ width: `${(1 - pct) * 100}%` }}
+          style={{ width: `${pct * 100}%` }}
         />
       </div>
     </div>

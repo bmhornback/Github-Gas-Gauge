@@ -5,10 +5,10 @@ export interface ProviderUsage {
   name: string;
   available: boolean;
   billing_type: string;      // "cost" or "balance"
-  cost_usd: number;          // cost-based: total spend this period
-  balance_usd: number;       // balance-based: remaining credit
+  cost: number;          // cost-based: total spend this period in provider native currency
+  balance: number;           // balance-based: remaining credit (native currency)
   currency: string;
-  limit_usd?: number | null;
+  limit?: number | null;     // optional monthly limit (same currency as cost/balance)
   percent_used: number;      // 0.0–1.0
   by_model: Record<string, number>;
   note?: string | null;
@@ -29,20 +29,17 @@ function ProviderCard({ p }: { p: ProviderUsage }) {
   }
 
   const isBalance = p.billing_type === "balance";
+  const hasLimit = (p.limit ?? 0) > 0;
 
-  // For balance providers the gauge shows % consumed (1 - remaining/limit)
-  // For cost providers the gauge shows % of monthly limit spent
+  // For balance providers: gauge shows amount consumed (limit - balance)
+  // For cost providers: gauge shows amount spent — both in native currency
   const gaugeUsed = isBalance
-    ? p.limit_usd
-      ? Math.max(p.limit_usd - p.balance_usd, 0)
+    ? p.limit
+      ? Math.max(p.limit - p.balance, 0)
       : 0
-    : Math.round(p.cost_usd * 100);   // cents
+    : p.cost;
 
-  const gaugeTotal = isBalance
-    ? p.limit_usd ?? 0
-    : Math.round((p.limit_usd ?? 0) * 100);  // cents
-
-  const hasLimit = (p.limit_usd ?? 0) > 0;
+  const gaugeTotal = isBalance ? (p.limit ?? 0) : (p.limit ?? 0);
 
   const topModels = Object.entries(p.by_model)
     .sort(([, a], [, b]) => b - a)
@@ -54,13 +51,13 @@ function ProviderCard({ p }: { p: ProviderUsage }) {
       <h3>{p.name}</h3>
 
       {hasLimit ? (
-        <GasGauge used={gaugeUsed} total={gaugeTotal} label={isBalance ? p.currency : "USD cents"} />
+        <GasGauge used={gaugeUsed} total={gaugeTotal} label={p.currency} />
       ) : (
         <div className="provider-no-gauge">
           <span className="provider-cost-value">
             {isBalance
-              ? `${p.currency} ${p.balance_usd.toFixed(4)}`
-              : `$${p.cost_usd.toFixed(4)}`}
+              ? `${p.currency} ${p.balance.toFixed(4)}`
+              : `${p.currency} ${p.cost.toFixed(4)}`}
           </span>
           <span className="provider-cost-label">
             {isBalance ? "balance remaining" : "spent this period"}
@@ -73,13 +70,13 @@ function ProviderCard({ p }: { p: ProviderUsage }) {
 
       {isBalance && hasLimit && (
         <p className="provider-sub">
-          {p.currency} {p.balance_usd.toFixed(4)} of {p.currency} {p.limit_usd!.toFixed(2)} remaining
+          {p.currency} {p.balance.toFixed(4)} of {p.currency} {p.limit!.toFixed(2)} remaining
         </p>
       )}
 
       {!isBalance && hasLimit && (
         <p className="provider-sub">
-          ${p.cost_usd.toFixed(4)} of ${p.limit_usd!.toFixed(2)} monthly limit
+          {p.currency} {p.cost.toFixed(4)} of {p.currency} {p.limit!.toFixed(2)} monthly limit
         </p>
       )}
 
@@ -89,7 +86,7 @@ function ProviderCard({ p }: { p: ProviderUsage }) {
           {topModels.map(([model, cost]) => (
             <div key={model} className="provider-model-row">
               <span className="provider-model-name">{model}</span>
-              <span className="provider-model-cost">${cost.toFixed(4)}</span>
+              <span className="provider-model-cost">{p.currency} {cost.toFixed(4)}</span>
             </div>
           ))}
         </div>

@@ -141,13 +141,13 @@ export default function Settings({ initialConfig, onSave }: SettingsProps) {
             checked={config.use_org}
             onChange={(e) => setConfig({ ...config, use_org: e.target.checked })}
           />
-          {" "}Use organisation account
+          {" "}Use organization account
         </label>
       </div>
 
       {config.use_org && (
         <div className="field">
-          <label htmlFor="org-name">Organisation Name</label>
+          <label htmlFor="org-name">Organization Name</label>
           <input
             id="org-name"
             type="text"

@@ -360,10 +360,10 @@ def parse_actions_usage(data: dict) -> dict:
             "total_paid_minutes_used": 0,
         }
     return {
-        "minutes_used": data.get("total_minutes_used", 0) or 0,
-        "included_minutes": data.get("included_minutes", 0) or 0,
+        "minutes_used": int(data.get("total_minutes_used", 0) or 0),
+        "included_minutes": int(data.get("included_minutes", 0) or 0),
         "minutes_used_breakdown": data.get("minutes_used_breakdown", {}) or {},
-        "total_paid_minutes_used": data.get("total_paid_minutes_used", 0) or 0,
+        "total_paid_minutes_used": int(data.get("total_paid_minutes_used", 0) or 0),
     }
 
 
@@ -487,7 +487,7 @@ def get_deepseek_balance(api_key: str) -> dict:
 def parse_deepseek_balance(data: dict) -> dict:
     """Parse a DeepSeek /user/balance response into a normalised dict."""
     if not data:
-        return {"balance_usd": 0.0, "currency": "USD", "is_available": False}
+        return {"balance": 0.0, "currency": "USD", "is_available": False}
 
     balance_infos = data.get("balance_infos", [])
     total_balance = 0.0
@@ -501,7 +501,7 @@ def parse_deepseek_balance(data: dict) -> dict:
         break  # use first balance entry
 
     return {
-        "balance_usd": total_balance,
+        "balance": total_balance,
         "currency": currency,
         "is_available": data.get("is_available", True),
     }
@@ -569,12 +569,12 @@ def fetch_provider_usage(provider_id: str, year: int = None, month: int = None) 
                 "name": config["name"],
                 "available": True,
                 "billing_type": "cost",
-                "cost_usd": parsed["cost_usd"],
+                "cost": parsed["cost_usd"],
                 "input_tokens": parsed["input_tokens"],
                 "output_tokens": parsed["output_tokens"],
                 "total_tokens": parsed["total_tokens"],
                 "by_model": parsed["by_model"],
-                "limit_usd": limit_usd,
+                "limit": limit_usd,
             }
 
         if provider_id == "deepseek":
@@ -593,10 +593,10 @@ def fetch_provider_usage(provider_id: str, year: int = None, month: int = None) 
                 "name": config["name"],
                 "available": True,
                 "billing_type": "balance",
-                "balance_usd": parsed["balance_usd"],
+                "balance": parsed["balance"],
                 "currency": parsed["currency"],
                 "is_available": parsed["is_available"],
-                "limit_usd": limit_usd,
+                "limit": limit_usd,
             }
 
     except requests.exceptions.RequestException as exc:
@@ -646,9 +646,9 @@ def print_provider_gauge(usage: dict, no_color: bool = False):
 
     if billing_type == "balance":
         # Credit / balance-based providers (e.g. DeepSeek)
-        balance = usage.get("balance_usd", 0.0)
+        balance = usage.get("balance", 0.0)
         currency = usage.get("currency", "USD")
-        limit = usage.get("limit_usd")
+        limit = usage.get("limit")
 
         if not usage.get("is_available", True):
             print("  ⚠️  Account not active or balance unavailable.")
@@ -670,21 +670,21 @@ def print_provider_gauge(usage: dict, no_color: bool = False):
 
     else:
         # Cost / spend-based providers (e.g. OpenAI)
-        cost_usd = usage.get("cost_usd", 0.0)
-        limit_usd = usage.get("limit_usd")
+        cost = usage.get("cost", 0.0)
+        limit = usage.get("limit")
         by_model = usage.get("by_model", {})
         input_tokens = usage.get("input_tokens", 0)
         output_tokens = usage.get("output_tokens", 0)
         total_tokens = usage.get("total_tokens", 0)
 
-        if limit_usd and limit_usd > 0:
-            pct = min(cost_usd / limit_usd, 1.0)
-            gauge = draw_gauge(int(cost_usd * 100), int(limit_usd * 100), no_color=no_color)
+        if limit and limit > 0:
+            pct = min(cost / limit, 1.0)
+            gauge = draw_gauge(int(cost * 100), int(limit * 100), no_color=no_color)
             print(f"  Spending  {gauge}  {pct * 100:.1f}%")
-            print(f"            ${cost_usd:.4f} of ${limit_usd:.2f} monthly limit")
+            print(f"            ${cost:.4f} of ${limit:.2f} monthly limit")
         else:
             limit_env_var = PROVIDERS.get(provider_id, {}).get("limit_env_var", "LIMIT")
-            print(f"  Cost This Period: ${cost_usd:.4f}")
+            print(f"  Cost This Period: ${cost:.4f}")
             print(f"  (Set {limit_env_var} to enable spending gauge)")
 
         print()
@@ -799,12 +799,6 @@ Environment variables:
         "--json",
         action="store_true",
         help="Output raw JSON usage data (Copilot only)",
-    )
-    parser.add_argument(
-        "--show-actions",
-        action="store_true",
-        default=True,
-        help="Include Actions billing section (default: True)",
     )
     parser.add_argument(
         "--actions-only",

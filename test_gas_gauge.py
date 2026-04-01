@@ -288,6 +288,20 @@ class TestParseActionsUsage(unittest.TestCase):
         self.assertEqual(result["minutes_used"], 0)
         self.assertEqual(result["included_minutes"], 0)
 
+    def test_float_values_are_normalized_to_int(self):
+        data = {
+            "total_minutes_used": 450.7,
+            "included_minutes": 2000.0,
+            "total_paid_minutes_used": 5.3,
+        }
+        result = gas_gauge.parse_actions_usage(data)
+        self.assertIsInstance(result["minutes_used"], int)
+        self.assertEqual(result["minutes_used"], 450)
+        self.assertIsInstance(result["included_minutes"], int)
+        self.assertEqual(result["included_minutes"], 2000)
+        self.assertIsInstance(result["total_paid_minutes_used"], int)
+        self.assertEqual(result["total_paid_minutes_used"], 5)
+
 
 class TestPrintActionsGauge(unittest.TestCase):
     def test_basic_output(self):
@@ -485,13 +499,13 @@ class TestParseOpenAIUsage(unittest.TestCase):
 class TestParseDeepSeekBalance(unittest.TestCase):
     def test_none_returns_defaults(self):
         result = gas_gauge.parse_deepseek_balance(None)
-        self.assertEqual(result["balance_usd"], 0.0)
+        self.assertEqual(result["balance"], 0.0)
         self.assertEqual(result["currency"], "USD")
         self.assertFalse(result["is_available"])
 
     def test_empty_dict_returns_defaults(self):
         result = gas_gauge.parse_deepseek_balance({})
-        self.assertEqual(result["balance_usd"], 0.0)
+        self.assertEqual(result["balance"], 0.0)
 
     def test_usd_balance_parsed(self):
         data = {
@@ -502,7 +516,7 @@ class TestParseDeepSeekBalance(unittest.TestCase):
             ],
         }
         result = gas_gauge.parse_deepseek_balance(data)
-        self.assertAlmostEqual(result["balance_usd"], 45.0)
+        self.assertAlmostEqual(result["balance"], 45.0)
         self.assertEqual(result["currency"], "USD")
         self.assertTrue(result["is_available"])
 
@@ -514,7 +528,7 @@ class TestParseDeepSeekBalance(unittest.TestCase):
             ],
         }
         result = gas_gauge.parse_deepseek_balance(data)
-        self.assertAlmostEqual(result["balance_usd"], 100.0)
+        self.assertAlmostEqual(result["balance"], 100.0)
         self.assertEqual(result["currency"], "CNY")
 
     def test_invalid_balance_value_defaults_to_zero(self):
@@ -523,7 +537,7 @@ class TestParseDeepSeekBalance(unittest.TestCase):
             "balance_infos": [{"currency": "USD", "total_balance": "not-a-number"}],
         }
         result = gas_gauge.parse_deepseek_balance(data)
-        self.assertEqual(result["balance_usd"], 0.0)
+        self.assertEqual(result["balance"], 0.0)
 
 
 class TestProviderAPIFunctions(unittest.TestCase):
@@ -619,8 +633,8 @@ class TestFetchProviderUsage(unittest.TestCase):
                                      "OPENAI_MONTHLY_LIMIT": "50.0"}):
             result = gas_gauge.fetch_provider_usage("openai")
         self.assertTrue(result.get("available", False))
-        self.assertAlmostEqual(result["cost_usd"], 12.34)
-        self.assertAlmostEqual(result["limit_usd"], 50.0)
+        self.assertAlmostEqual(result["cost"], 12.34)
+        self.assertAlmostEqual(result["limit"], 50.0)
 
     @patch("gas_gauge.get_deepseek_balance")
     def test_deepseek_success_returns_available(self, mock_fetch):
@@ -631,7 +645,7 @@ class TestFetchProviderUsage(unittest.TestCase):
         with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test"}):
             result = gas_gauge.fetch_provider_usage("deepseek")
         self.assertTrue(result.get("available", False))
-        self.assertAlmostEqual(result["balance_usd"], 45.0)
+        self.assertAlmostEqual(result["balance"], 45.0)
 
 
 class TestPrintProviderGauge(unittest.TestCase):
@@ -671,8 +685,8 @@ class TestPrintProviderGauge(unittest.TestCase):
             "name": "OpenAI",
             "available": True,
             "billing_type": "cost",
-            "cost_usd": 12.45,
-            "limit_usd": 50.0,
+            "cost": 12.45,
+            "limit": 50.0,
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
@@ -688,8 +702,8 @@ class TestPrintProviderGauge(unittest.TestCase):
             "name": "OpenAI",
             "available": True,
             "billing_type": "cost",
-            "cost_usd": 5.0,
-            "limit_usd": None,
+            "cost": 5.0,
+            "limit": None,
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
@@ -703,9 +717,9 @@ class TestPrintProviderGauge(unittest.TestCase):
             "name": "DeepSeek",
             "available": True,
             "billing_type": "balance",
-            "balance_usd": 45.0,
+            "balance": 45.0,
             "currency": "USD",
-            "limit_usd": 50.0,
+            "limit": 50.0,
             "is_available": True,
         })
         self.assertIn("DeepSeek", output)
@@ -717,9 +731,9 @@ class TestPrintProviderGauge(unittest.TestCase):
             "name": "DeepSeek",
             "available": True,
             "billing_type": "balance",
-            "balance_usd": 45.0,
+            "balance": 45.0,
             "currency": "USD",
-            "limit_usd": None,
+            "limit": None,
             "is_available": True,
         })
         self.assertIn("DEEPSEEK_MONTHLY_LIMIT", output)
@@ -730,8 +744,8 @@ class TestPrintProviderGauge(unittest.TestCase):
             "name": "OpenAI",
             "available": True,
             "billing_type": "cost",
-            "cost_usd": 1.0,
-            "limit_usd": None,
+            "cost": 1.0,
+            "limit": None,
             "input_tokens": 100000,
             "output_tokens": 20000,
             "total_tokens": 120000,
@@ -747,8 +761,8 @@ class TestPrintProviderGauge(unittest.TestCase):
             "name": "OpenAI",
             "available": True,
             "billing_type": "cost",
-            "cost_usd": 15.0,
-            "limit_usd": None,
+            "cost": 15.0,
+            "limit": None,
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
