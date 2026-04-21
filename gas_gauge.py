@@ -129,6 +129,10 @@ ALL_PROVIDER_IDS = list(PROVIDERS.keys())
 # Only output tokens are available in the session logs (Copilot does not record
 # input tokens in the local session state).
 
+# Bar characters used in the CLI trend chart
+_BAR_FILLED = "█"
+_BAR_EMPTY = "░"
+
 SESSION_CACHE_VERSION = 1
 
 
@@ -616,7 +620,7 @@ def print_session_analytics(analytics, no_color=False):
             filled = int(tokens / max_val * bar_width)
             empty = bar_width - filled
             if no_color:
-                bar = f"{'█' * filled}{'░' * empty}"
+                bar = f"{_BAR_FILLED * filled}{_BAR_EMPTY * empty}"
             else:
                 ratio = tokens / max_val
                 if ratio >= 0.9:
@@ -626,7 +630,7 @@ def print_session_analytics(analytics, no_color=False):
                 else:
                     color = "\033[92m"
                 reset = "\033[0m"
-                bar = f"{color}{'█' * filled}{reset}{'░' * empty}"
+                bar = f"{color}{_BAR_FILLED * filled}{reset}{_BAR_EMPTY * empty}"
             print(f"    {date_str}  [{bar}]  {tokens:>8,}")
         print()
 

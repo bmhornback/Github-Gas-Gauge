@@ -28,6 +28,21 @@ export interface SessionAnalytics {
   daily_trend: DailyUsage[];
 }
 
+// ─── Theme constants ──────────────────────────────────────────────────────────
+// These mirror the CSS custom properties defined in app.css so that inline SVG
+// styles stay consistent with the overall design system.
+const COLOR_HIGH = "var(--accent-red, #ef4444)";
+const COLOR_MID = "var(--accent-yellow, #f59e0b)";
+const COLOR_LOW = "var(--accent-green, #22c55e)";
+const COLOR_MODEL = "var(--accent-blue, #3b82f6)";
+const COLOR_PROJECT = "#8b5cf6"; // violet — no CSS variable defined yet
+
+function trendColor(pct: number): string {
+  if (pct >= 0.9) return COLOR_HIGH;
+  if (pct >= 0.5) return COLOR_MID;
+  return COLOR_LOW;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatTokens(n: number): string {
@@ -61,8 +76,7 @@ function TrendChart({ trend }: { trend: DailyUsage[] }) {
           const barH = Math.max(Math.round(pct * chartH), 2);
           const x = i * (barW + gap);
           const y = chartH - barH;
-          const color =
-            pct >= 0.9 ? "#ef4444" : pct >= 0.5 ? "#f59e0b" : "#22c55e";
+          const color = trendColor(pct);
           return (
             <g key={day.date}>
               <rect x={x} y={y} width={barW} height={barH} fill={color} rx="2">
@@ -239,7 +253,7 @@ export default function SessionAnalyticsPanel() {
                 label={model}
                 tokens={tokens}
                 total={analytics.total_output_tokens}
-                color="#3b82f6"
+                color={COLOR_MODEL}
               />
             ))}
           </div>
@@ -255,7 +269,7 @@ export default function SessionAnalyticsPanel() {
                 label={project}
                 tokens={tokens}
                 total={analytics.total_output_tokens}
-                color="#8b5cf6"
+                color={COLOR_PROJECT}
               />
             ))}
           </div>
