@@ -5,6 +5,7 @@ import GasGauge from "./components/GasGauge";
 import OveragePanel from "./components/OveragePanel";
 import BalancePanel from "./components/BalancePanel";
 import Settings from "./components/Settings";
+import SessionAnalyticsPanel from "./components/SessionAnalyticsPanel";
 
 export interface BillingData {
   total_minutes_used: number;
@@ -40,7 +41,7 @@ const POLLING_MINUTES: Record<AppConfig["polling_interval"], number> = {
   one_hour: 60,
 };
 
-type Tab = "dashboard" | "settings";
+type Tab = "dashboard" | "analytics" | "settings";
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -134,6 +135,12 @@ function App() {
             Dashboard
           </button>
           <button
+            className={`nav-btn ${activeTab === "analytics" ? "active" : ""}`}
+            onClick={() => setActiveTab("analytics")}
+          >
+            Analytics
+          </button>
+          <button
             className={`nav-btn ${activeTab === "settings" ? "active" : ""}`}
             onClick={() => setActiveTab("settings")}
           >
@@ -190,6 +197,12 @@ function App() {
                 </span>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === "analytics" && (
+          <div className="dashboard">
+            <SessionAnalyticsPanel />
           </div>
         )}
 
