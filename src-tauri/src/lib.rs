@@ -1,6 +1,7 @@
 pub mod billing;
 pub mod config;
 pub mod alerts;
+pub mod session;
 
 use std::sync::Mutex;
 

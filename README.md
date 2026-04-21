@@ -15,6 +15,7 @@ A CLI tool and desktop application to view your GitHub Copilot premium request c
 - **Personal or organization** usage reporting
 - **GitHub Action** for automated daily reporting
 - **Desktop app** (Tauri + Rust + React) — system tray icon, live gauges, threshold alerts
+- **Session Analytics** — local token consumption tracking by model, project, and session (no upload)
 
 ---
 
@@ -178,7 +179,82 @@ options:
                               (openai, anthropic, deepseek, perplexity, gemini)
   --providers-only            Skip GitHub sections; show only external providers
                               (implies --providers all when --providers not set)
+  --session-analytics         Show Copilot session analytics (local files, no upload)
+  --session-period PERIOD     Period for session analytics: today, week (default),
+                              month, all, or YYYY-MM-DD:YYYY-MM-DD
+  --session-dir DIR           Override the Copilot session-state directory
+                              (default: ~/.copilot/session-state)
+  --session-json              Output session analytics as JSON and exit
 ```
+
+---
+
+## Optional Session Analytics
+
+> **All session analytics data is read locally from your machine. Nothing is uploaded or shared with any external service.**
+
+GitHub Gas Gauge can read Copilot's local session state files to report **output token consumption** by model, project, and session — giving you insight into which work consumed the most tokens even before API billing data is available.
+
+### What it reads
+
+Copilot writes session state files when you use GitHub Copilot in agent or chat mode:
+
+```
+~/.copilot/session-state/
+└── <session-id>/
+    ├── events.jsonl      ← JSONL stream of model changes and assistant messages
+    └── workspace.yaml    ← Optional; contains the working directory
+```
+
+Each `events.jsonl` file contains events such as:
+- `session.model_change` — which model is active
+- `assistant.message` — output token count for each reply
+
+### Limitations
+
+- **Only output tokens are recorded.** Input tokens are not logged in Copilot session files. Reported token counts will be lower than actual API usage.
+- Session files are only created when Copilot is used in **agent or chat mode** (not inline completions).
+
+### CLI usage
+
+```bash
+# Add session analytics section to the normal output
+python gas_gauge.py --session-analytics
+
+# Filter to the current week (default)
+python gas_gauge.py --session-analytics --session-period week
+
+# Filter to today only
+python gas_gauge.py --session-analytics --session-period today
+
+# Full history (all sessions, no date filter)
+python gas_gauge.py --session-analytics --session-period all
+
+# Custom date range
+python gas_gauge.py --session-analytics --session-period 2026-04-01:2026-04-30
+
+# Export as JSON (no GitHub token required — standalone)
+python gas_gauge.py --session-json
+
+# Override the session state directory
+python gas_gauge.py --session-analytics --session-dir /custom/path
+
+# Combine with --providers-only (skip GitHub API calls)
+python gas_gauge.py --providers-only --session-analytics
+```
+
+### Desktop app
+
+The **Analytics** tab in the desktop application shows the same session data with:
+- **Summary stats** — total output tokens, session count
+- **Daily token usage chart** — SVG bar chart of the last 14 days
+- **Breakdown by model** — horizontal bars showing each model's share
+- **Breakdown by project** — derived from the `cwd` field in `workspace.yaml`
+- **Top sessions leaderboard** — highest-token sessions ranked
+
+### Caching
+
+Parsed session results are cached in `~/.cache/github-gas-gauge/session-cache.json` keyed by file path and modification time. Files are re-parsed only when they change, keeping repeated runs fast.
 
 ---
 
@@ -226,21 +302,23 @@ GGG requires a GitHub PAT to call the billing API.
 ├── requirements.txt         # Python dependencies
 ├── src-tauri/
 │   ├── src/
-│   │   ├── main.rs          # App entry point, system tray setup
+│   │   ├── main.rs          # App entry point, system tray setup, Tauri commands
 │   │   ├── billing.rs       # GitHub Billing REST API calls
 │   │   ├── config.rs        # PAT storage and user settings
 │   │   ├── alerts.rs        # Threshold logic and desktop notifications
+│   │   ├── session.rs       # Local Copilot session analytics parser
 │   │   └── lib.rs           # Tauri command exports
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
 │   └── build.rs
 ├── src/
 │   ├── components/
-│   │   ├── GasGauge.tsx     # SVG-based circular/arc gauge component
-│   │   ├── OveragePanel.tsx # Shows overage spend if applicable
-│   │   ├── BalancePanel.tsx # Shows usage summary and breakdown
-│   │   ├── ProviderGauges.tsx # External AI provider gauge cards
-│   │   └── Settings.tsx     # PAT input, polling interval, threshold config
+│   │   ├── GasGauge.tsx              # SVG-based circular/arc gauge component
+│   │   ├── OveragePanel.tsx          # Shows overage spend if applicable
+│   │   ├── BalancePanel.tsx          # Shows usage summary and breakdown
+│   │   ├── ProviderGauges.tsx        # External AI provider gauge cards
+│   │   ├── SessionAnalyticsPanel.tsx # Local Copilot session analytics
+│   │   └── Settings.tsx              # PAT input, polling interval, threshold config
 │   ├── App.tsx
 │   ├── main.tsx
 │   └── styles/

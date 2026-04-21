@@ -7,9 +7,12 @@ tasks remain for the billing period.
 """
 
 import argparse
+import json
 import os
+import re
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 try:
     import requests
@@ -113,6 +116,528 @@ PROVIDERS = {
 }
 
 ALL_PROVIDER_IDS = list(PROVIDERS.keys())
+
+# ── Session Analytics ──────────────────────────────────────────────────────────
+# Reads local Copilot session files to report token consumption per model,
+# project, and session.  All processing is local-only — nothing is uploaded
+# or transmitted.
+#
+# Session data location: ~/.copilot/session-state/<session-id>/
+#   events.jsonl      – JSONL stream of session events
+#   workspace.yaml    – optional; contains the working directory (cwd)
+#
+# Only output tokens are available in the session logs (Copilot does not record
+# input tokens in the local session state).
+
+# Bar characters used in the CLI trend chart
+_BAR_FILLED = "█"
+_BAR_EMPTY = "░"
+
+SESSION_CACHE_VERSION = 1
+
+
+def _default_cache_path():
+    """Return the path to the session analytics cache file."""
+    cache_dir = Path.home() / ".cache" / "github-gas-gauge"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / "session-cache.json"
+
+
+def _load_cache(cache_path):
+    """Load the session cache from disk, or return an empty dict."""
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("version") == SESSION_CACHE_VERSION:
+            return data.get("entries", {})
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return {}
+
+
+def _save_cache(cache_path, entries):
+    """Persist the session cache to disk."""
+    try:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump({"version": SESSION_CACHE_VERSION, "entries": entries}, f)
+    except OSError:
+        pass
+
+
+def _file_mtime(path):
+    """Return the file's mtime as a float, or -1.0 on error."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return -1.0
+
+
+def _parse_cwd_from_yaml(yaml_text):
+    """Extract the cwd field from a minimal workspace.yaml string.
+
+    Returns the cwd string, or None if not found.
+    """
+    match = re.search(r"^cwd:\s*(.+)$", yaml_text, re.MULTILINE)
+    if not match:
+        return None
+    raw = match.group(1)
+    raw = re.sub(r"\s*#.*$", "", raw)   # strip trailing comment
+    raw = raw.strip().strip("'\"")
+    return raw or None
+
+
+def _parse_copilot_events_file(events_path):
+    """Parse a Copilot events.jsonl file into a list of session call dicts.
+
+    Each call dict contains:
+      model, output_tokens, timestamp, tools (list of str), user_message (str)
+
+    Only output tokens are logged by Copilot; input tokens are always 0.
+    The 'tools' list contains raw tool names from toolRequests.
+    """
+    try:
+        text = events_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    calls = []
+    current_model = ""
+    pending_user_message = ""
+    seen_message_ids = set()
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        event_type = event.get("type", "")
+        data = event.get("data", {}) or {}
+
+        if event_type == "session.model_change":
+            new_model = data.get("newModel", "")
+            if new_model:
+                current_model = new_model
+        elif event_type == "user.message":
+            pending_user_message = data.get("content", "") or ""
+        elif event_type == "assistant.message":
+            if not current_model:
+                pending_user_message = ""
+                continue
+            message_id = data.get("messageId", "") or ""
+            output_tokens = int(data.get("outputTokens", 0) or 0)
+            if output_tokens <= 0:
+                pending_user_message = ""
+                continue
+            if message_id:
+                if message_id in seen_message_ids:
+                    pending_user_message = ""
+                    continue
+                seen_message_ids.add(message_id)
+
+            tool_requests = data.get("toolRequests") or []
+            tools = []
+            for req in tool_requests:
+                if isinstance(req, dict):
+                    name = req.get("name", "")
+                    if name:
+                        tools.append(name)
+
+            calls.append({
+                "model": current_model,
+                "output_tokens": output_tokens,
+                "timestamp": event.get("timestamp", "") or "",
+                "tools": tools,
+                "user_message": pending_user_message,
+            })
+            pending_user_message = ""
+
+    return calls
+
+
+def discover_copilot_sessions(session_state_dir=None):
+    """Discover Copilot session directories.
+
+    Returns a list of dicts:
+      {session_id, project, events_path (Path), mtime (float)}
+    """
+    if session_state_dir is None:
+        session_state_dir = Path.home() / ".copilot" / "session-state"
+
+    sessions = []
+    if not session_state_dir.is_dir():
+        return sessions
+
+    try:
+        entries = sorted(session_state_dir.iterdir())
+    except PermissionError:
+        return sessions
+
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        events_path = entry / "events.jsonl"
+        if not events_path.is_file():
+            continue
+
+        session_id = entry.name
+        project = session_id  # default
+
+        workspace_yaml = entry / "workspace.yaml"
+        if workspace_yaml.is_file():
+            try:
+                yaml_text = workspace_yaml.read_text(encoding="utf-8", errors="replace")
+                cwd = _parse_cwd_from_yaml(yaml_text)
+                if cwd:
+                    project = Path(cwd).name
+            except OSError:
+                pass
+
+        sessions.append({
+            "session_id": session_id,
+            "project": project,
+            "events_path": events_path,
+            "mtime": _file_mtime(events_path),
+        })
+
+    return sessions
+
+
+def parse_session_period(period_str):
+    """Parse a session period string into (start_date, end_date).
+
+    Returns (None, None) for 'all' (no filter).
+
+    Supported values:
+      today               – current calendar day
+      week                – last 7 calendar days (inclusive of today)
+      month               – current calendar month
+      all                 – all time (returns None, None)
+      YYYY-MM-DD:YYYY-MM-DD – explicit date range
+
+    Raises ValueError for unrecognised or invalid inputs.
+    """
+    today = date.today()
+    p = period_str.lower().strip()
+    if p == "today":
+        return today, today
+    if p == "week":
+        return today - timedelta(days=6), today
+    if p == "month":
+        return date(today.year, today.month, 1), today
+    if p == "all":
+        return None, None
+    # Custom range YYYY-MM-DD:YYYY-MM-DD
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})", period_str.strip())
+    if match:
+        try:
+            start = date.fromisoformat(match.group(1))
+            end = date.fromisoformat(match.group(2))
+        except ValueError as exc:
+            raise ValueError(f"Invalid date in range '{period_str}': {exc}") from exc
+        if end < start:
+            raise ValueError(
+                f"End date {end.isoformat()} is before start date {start.isoformat()}"
+            )
+        return start, end
+    raise ValueError(
+        f"Invalid session period '{period_str}'. "
+        "Use: today, week, month, all, or YYYY-MM-DD:YYYY-MM-DD"
+    )
+
+
+def _call_date(call):
+    """Extract the date from a session call dict's timestamp field.
+
+    Returns a date object, or None if the timestamp is missing or unparseable.
+    """
+    ts = call.get("timestamp", "") or ""
+    if not ts:
+        return None
+    # Handle ISO 8601 with optional Z or +00:00 suffix
+    try:
+        ts_clean = ts.replace("Z", "+00:00")
+        return datetime.fromisoformat(ts_clean).date()
+    except ValueError:
+        pass
+    # Fall back to bare YYYY-MM-DD prefix
+    try:
+        return date.fromisoformat(ts[:10])
+    except (ValueError, IndexError):
+        return None
+
+
+def _filter_calls_by_period(calls, start_date, end_date):
+    """Return only those calls whose timestamp falls within [start_date, end_date].
+
+    If both start_date and end_date are None, returns all calls unchanged.
+    Calls with no parseable timestamp are excluded when a filter is active.
+    """
+    if start_date is None and end_date is None:
+        return list(calls)
+    filtered = []
+    for call in calls:
+        d = _call_date(call)
+        if d is None:
+            continue
+        if start_date and d < start_date:
+            continue
+        if end_date and d > end_date:
+            continue
+        filtered.append(call)
+    return filtered
+
+
+def aggregate_session_analytics(sessions_with_calls):
+    """Aggregate per-session call lists into a summary analytics dict.
+
+    sessions_with_calls: list of dicts with keys:
+      session_id, project, calls (list of call dicts)
+
+    Returns a dict with:
+      total_output_tokens, by_model, by_project, top_sessions, daily_trend
+    """
+    total_output_tokens = 0
+    by_model = {}
+    by_project = {}
+    session_totals = []
+    daily = {}  # ISO date string -> token count
+
+    for session in sessions_with_calls:
+        session_id = session["session_id"]
+        project = session["project"]
+        calls = session.get("calls", [])
+
+        session_tokens = 0
+        session_model = ""
+        first_ts = ""
+
+        for call in calls:
+            tokens = call.get("output_tokens", 0) or 0
+            model = call.get("model", "") or "unknown"
+            ts = call.get("timestamp", "") or ""
+
+            total_output_tokens += tokens
+            session_tokens += tokens
+            by_model[model] = by_model.get(model, 0) + tokens
+            by_project[project] = by_project.get(project, 0) + tokens
+
+            if not session_model:
+                session_model = model
+            if not first_ts and ts:
+                first_ts = ts
+
+            d = _call_date(call)
+            if d is not None:
+                ds = d.isoformat()
+                daily[ds] = daily.get(ds, 0) + tokens
+
+        if session_tokens > 0:
+            session_totals.append({
+                "session_id": session_id,
+                "project": project,
+                "output_tokens": session_tokens,
+                "model": session_model or "unknown",
+                "first_ts": first_ts,
+            })
+
+    # Top sessions sorted by token count descending
+    top_sessions = sorted(session_totals, key=lambda x: -x["output_tokens"])[:10]
+
+    # Daily trend sorted chronologically
+    daily_trend = [
+        {"date": ds, "output_tokens": tok}
+        for ds, tok in sorted(daily.items())
+    ]
+
+    return {
+        "total_output_tokens": total_output_tokens,
+        "by_model": by_model,
+        "by_project": by_project,
+        "top_sessions": top_sessions,
+        "daily_trend": daily_trend,
+    }
+
+
+def run_session_analytics(session_state_dir=None, period_str="week", cache_path=None):
+    """Run the full session analytics pipeline.
+
+    Discovers sessions under session_state_dir (default: ~/.copilot/session-state),
+    applies file-level mtime caching, filters calls by period_str, and aggregates.
+
+    Returns a result dict. Always returns a dict (never raises).
+    Check result["available"] to detect errors.
+    """
+    if cache_path is None:
+        cache_path = _default_cache_path()
+
+    try:
+        start_date, end_date = parse_session_period(period_str)
+    except ValueError as exc:
+        return {"available": False, "error": str(exc)}
+
+    cache = _load_cache(cache_path)
+    sessions = discover_copilot_sessions(
+        Path(session_state_dir) if session_state_dir else None
+    )
+    session_dir_str = str(
+        Path(session_state_dir) if session_state_dir
+        else Path.home() / ".copilot" / "session-state"
+    )
+
+    if not sessions:
+        return {
+            "available": False,
+            "session_dir": session_dir_str,
+            "error": (
+                f"No Copilot sessions found at {session_dir_str}. "
+                "GitHub Copilot must have been used in agent/chat mode to "
+                "generate local session files."
+            ),
+        }
+
+    sessions_with_calls = []
+    cache_updated = False
+
+    for session_info in sessions:
+        events_path = session_info["events_path"]
+        mtime = session_info["mtime"]
+        cache_key = str(events_path)
+
+        cached = cache.get(cache_key)
+        if cached and cached.get("mtime") == mtime:
+            all_calls = cached["calls"]
+        else:
+            all_calls = _parse_copilot_events_file(events_path)
+            cache[cache_key] = {"mtime": mtime, "calls": all_calls}
+            cache_updated = True
+
+        filtered_calls = _filter_calls_by_period(all_calls, start_date, end_date)
+        if filtered_calls:
+            sessions_with_calls.append({
+                "session_id": session_info["session_id"],
+                "project": session_info["project"],
+                "calls": filtered_calls,
+            })
+
+    if cache_updated:
+        _save_cache(cache_path, cache)
+
+    analytics = aggregate_session_analytics(sessions_with_calls)
+    analytics["available"] = True
+    analytics["session_dir"] = session_dir_str
+    analytics["period"] = period_str
+    analytics["session_count"] = len(sessions)
+    analytics["active_session_count"] = len(sessions_with_calls)
+
+    if start_date and end_date:
+        analytics["period_range"] = f"{start_date.isoformat()} to {end_date.isoformat()}"
+    elif start_date:
+        analytics["period_range"] = f"from {start_date.isoformat()}"
+    elif end_date:
+        analytics["period_range"] = f"through {end_date.isoformat()}"
+    else:
+        analytics["period_range"] = "all time"
+
+    return analytics
+
+
+def print_session_analytics(analytics, no_color=False):
+    """Print the Copilot session analytics report to stdout."""
+    header = f"{'=' * 60}"
+    print(header)
+    print("  📈 Copilot Session Analytics")
+    print(header)
+
+    if not analytics.get("available", False):
+        error = analytics.get("error", "Session data not available.")
+        session_dir = analytics.get("session_dir", "~/.copilot/session-state")
+        print(f"  ⚠️  {error}")
+        print()
+        print(f"  Session state directory: {session_dir}")
+        print("  ℹ️  Session analytics reads local Copilot session files.")
+        print("      No data is uploaded or shared externally.")
+        print(header)
+        return
+
+    period_range = analytics.get("period_range", analytics.get("period", ""))
+    session_dir = analytics.get("session_dir", "")
+    total_sessions = analytics.get("session_count", 0)
+    active_sessions = analytics.get("active_session_count", 0)
+    total_tokens = analytics.get("total_output_tokens", 0)
+
+    print(f"  Period:             {period_range}")
+    print(f"  Session directory:  {session_dir}")
+    print()
+    print(f"  Sessions found (total):   {total_sessions:>8,}")
+    print(f"  Sessions in period:       {active_sessions:>8,}")
+    print(f"  Output tokens (period):   {total_tokens:>8,}")
+    print()
+
+    by_model = analytics.get("by_model", {})
+    if by_model:
+        print("  Output Tokens by Model:")
+        for model, tokens in sorted(by_model.items(), key=lambda x: -x[1]):
+            if tokens > 0:
+                pct = tokens / total_tokens * 100 if total_tokens > 0 else 0.0
+                print(f"    {model:<35} {tokens:>8,}  ({pct:.1f}%)")
+        print()
+
+    by_project = analytics.get("by_project", {})
+    if by_project:
+        print("  Output Tokens by Project:")
+        for project, tokens in sorted(by_project.items(), key=lambda x: -x[1])[:10]:
+            if tokens > 0:
+                pct = tokens / total_tokens * 100 if total_tokens > 0 else 0.0
+                print(f"    {project:<35} {tokens:>8,}  ({pct:.1f}%)")
+        print()
+
+    top_sessions = analytics.get("top_sessions", [])
+    if top_sessions:
+        print("  Top Sessions by Output Tokens:")
+        print(f"    {'Project':<25}  {'Model':<20}  {'Tokens':>8}  Date")
+        print(f"    {'-' * 70}")
+        for session in top_sessions[:5]:
+            project = (session.get("project", "") or "")[:25]
+            model = (session.get("model", "") or "")[:20]
+            tokens = session.get("output_tokens", 0)
+            ts = (session.get("first_ts", "") or "")[:10]
+            print(f"    {project:<25}  {model:<20}  {tokens:>8,}  {ts}")
+        print()
+
+    daily_trend = analytics.get("daily_trend", [])
+    if daily_trend:
+        recent = daily_trend[-7:]
+        max_val = max((d["output_tokens"] for d in recent), default=1) or 1
+        bar_width = 20
+        print("  Daily Token Usage (most recent 7 days):")
+        for day in recent:
+            date_str = day["date"]
+            tokens = day["output_tokens"]
+            filled = int(tokens / max_val * bar_width)
+            empty = bar_width - filled
+            if no_color:
+                bar = f"{_BAR_FILLED * filled}{_BAR_EMPTY * empty}"
+            else:
+                ratio = tokens / max_val
+                if ratio >= 0.9:
+                    color = "\033[91m"
+                elif ratio >= 0.6:
+                    color = "\033[93m"
+                else:
+                    color = "\033[92m"
+                reset = "\033[0m"
+                bar = f"{color}{_BAR_FILLED * filled}{reset}{_BAR_EMPTY * empty}"
+            print(f"    {date_str}  [{bar}]  {tokens:>8,}")
+        print()
+
+    print("  ℹ️  Only output tokens are available in Copilot session files.")
+    print("      Input tokens are not logged; actual API costs are higher.")
+    print("      Data is read locally — nothing is uploaded or shared.")
+    print(header)
 
 
 def get_headers(token: str) -> dict:
@@ -743,6 +1268,15 @@ Examples:
   # Disable color output (for CI/logs)
   python gas_gauge.py --no-color
 
+  # Show local Copilot session analytics (reads ~/.copilot/session-state/)
+  python gas_gauge.py --session-analytics
+
+  # Session analytics for today only
+  python gas_gauge.py --session-analytics --session-period today
+
+  # Export session analytics as JSON
+  python gas_gauge.py --session-json
+
 Environment variables:
   GITHUB_TOKEN          GitHub personal access token (required for GitHub sections)
   COPILOT_PLAN          Copilot plan: free, pro, business, enterprise (default: pro)
@@ -827,6 +1361,37 @@ Environment variables:
             "Implies --providers all when --providers is not specified."
         ),
     )
+    parser.add_argument(
+        "--session-analytics",
+        action="store_true",
+        help=(
+            "Show Copilot session analytics by reading local session files from "
+            "~/.copilot/session-state/. No data is uploaded or transmitted."
+        ),
+    )
+    parser.add_argument(
+        "--session-period",
+        default="week",
+        metavar="PERIOD",
+        help=(
+            "Time period for session analytics: today, week (default), month, all, "
+            "or YYYY-MM-DD:YYYY-MM-DD. Requires --session-analytics or --session-json."
+        ),
+    )
+    parser.add_argument(
+        "--session-dir",
+        default=None,
+        metavar="DIR",
+        help="Override the Copilot session-state directory (default: ~/.copilot/session-state).",
+    )
+    parser.add_argument(
+        "--session-json",
+        action="store_true",
+        help=(
+            "Output session analytics as JSON to stdout and exit. "
+            "Skips all other output sections."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -854,12 +1419,19 @@ Environment variables:
     show_copilot = not args.actions_only and not args.providers_only
     show_actions = not args.copilot_only and not args.providers_only
 
+    # --session-json outputs only session analytics JSON and exits immediately.
+    # Skip all GitHub API sections in that case.
+    if args.session_json:
+        show_copilot = False
+        show_actions = False
+        providers_to_show = []
+
     # GitHub sections need a token; skip gracefully when --providers-only
     if (show_copilot or show_actions) and not args.token:
         print("Error: GitHub token required. Set GITHUB_TOKEN env var or use --token.")
         print("       Create a token at: https://github.com/settings/tokens")
         print("       Required scopes: read:org (for org usage) or copilot (for user usage)")
-        print("       Use --providers-only to skip GitHub sections.")
+        print("       Use --providers-only or --session-json to skip GitHub sections.")
         sys.exit(1)
 
     login = "unknown"
@@ -906,7 +1478,6 @@ Environment variables:
                     print(f"Error fetching user Copilot usage: {e}")
 
             if args.json:
-                import json
                 print(json.dumps(usage_data, indent=2))
                 return
 
@@ -959,6 +1530,18 @@ Environment variables:
     for provider_id in providers_to_show:
         usage = fetch_provider_usage(provider_id, args.year, args.month)
         print_provider_gauge(usage, no_color=args.no_color)
+
+    # Session analytics (--session-json exits early with JSON; --session-analytics
+    # appends the text section to whatever else was already printed)
+    if args.session_analytics or args.session_json:
+        analytics = run_session_analytics(
+            session_state_dir=args.session_dir,
+            period_str=args.session_period,
+        )
+        if args.session_json:
+            print(json.dumps(analytics, indent=2, default=str))
+            return
+        print_session_analytics(analytics, no_color=args.no_color)
 
 
 if __name__ == "__main__":

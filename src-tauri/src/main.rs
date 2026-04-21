@@ -7,7 +7,7 @@ use tauri::{
     AppHandle, Manager, State,
 };
 
-use github_gas_gauge_lib::{alerts, billing, config, AppState};
+use github_gas_gauge_lib::{alerts, billing, config, session, AppState};
 
 fn main() {
     tauri::Builder::default()
@@ -19,6 +19,7 @@ fn main() {
             get_config,
             save_config_cmd,
             refresh_now,
+            get_session_analytics,
         ])
         .setup(|app| {
             // Build system tray menu.
@@ -102,6 +103,12 @@ fn get_config() -> Result<config::AppConfig, String> {
 #[tauri::command]
 fn save_config_cmd(new_config: config::AppConfig) -> Result<(), String> {
     config::save_config(&new_config)
+}
+
+/// Read Copilot local session analytics from ~/.copilot/session-state/.
+#[tauri::command]
+fn get_session_analytics() -> session::SessionAnalytics {
+    session::read_session_analytics(None)
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
