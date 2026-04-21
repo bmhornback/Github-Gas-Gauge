@@ -27,6 +27,7 @@ GitHub Gas Gauge (GGG) is available as both a **Python CLI tool** and a **cross-
 - 🔔 **Desktop Notifications** — OS notifications at 75%, 90%, and 100% usage thresholds
 - 🗂️ **System Tray Integration** — Lives quietly in your system tray; left-click to open
 - 📊 **Usage Breakdown** — Requests or minutes used by model, product, and runner OS
+- 📈 **Session Analytics** — Local Copilot session token insights by model, project, and session
 - ⚠️ **Overage Panel** — Shows paid overage minutes and estimated cost
 - ⚙️ **Settings** — PAT input, org/personal toggle, polling interval, notification thresholds
 - 🔄 **Auto-polling** — Configurable polling interval (5 min / 15 min / 30 min / 1 hour)
@@ -159,8 +160,7 @@ python gas_gauge.py --providers-only --providers openai,deepseek
 usage: gas_gauge.py [-h] [--token TOKEN] [--org ORG] [--year YEAR]
                     [--month MONTH] [--quota QUOTA]
                     [--plan {free,pro,individual,business,enterprise}]
-                    [--no-color] [--json]
-                    [--show-actions] [--actions-only] [--copilot-only]
+                    [--no-color] [--json] [--actions-only] [--copilot-only]
                     [--providers PROVIDER[,...]] [--providers-only]
 
 options:
@@ -169,10 +169,10 @@ options:
   --year YEAR                 Year to query (default: current year)
   --month MONTH               Month to query, 1-12 (default: current month)
   --quota QUOTA               Monthly premium request quota override
-  --plan PLAN                 Copilot plan: free, pro, business, enterprise (default: pro)
+  --plan {free,pro,individual,business,enterprise}
+                              Copilot plan: free, pro, individual, business, enterprise (default: pro)
   --no-color                  Disable color output
   --json                      Output raw JSON usage data (Copilot only)
-  --show-actions              Include Actions billing section (default: True)
   --actions-only              Show only Actions billing, skip Copilot section
   --copilot-only              Show only Copilot section, skip Actions billing
   --providers PROVIDER[,...]  External providers to show, or 'all'
