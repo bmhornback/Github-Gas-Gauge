@@ -169,7 +169,8 @@ options:
   --year YEAR                 Year to query (default: current year)
   --month MONTH               Month to query, 1-12 (default: current month)
   --quota QUOTA               Monthly premium request quota override
-  --plan PLAN                 Copilot plan: free, pro, individual, business, enterprise (default: pro)
+  --plan {free,pro,individual,business,enterprise}
+                              Copilot plan: free, pro, individual, business, enterprise (default: pro)
   --no-color                  Disable color output
   --json                      Output raw JSON usage data (Copilot only)
   --actions-only              Show only Actions billing, skip Copilot section
