@@ -19,6 +19,7 @@ fn main() {
             get_config,
             save_config_cmd,
             refresh_now,
+            webhook_refresh,
             get_session_analytics,
         ])
         .setup(|app| {
@@ -91,6 +92,13 @@ fn get_billing_data(
 #[tauri::command]
 fn refresh_now(app: AppHandle, state: State<AppState>) -> Result<billing::BillingData, String> {
     fetch_and_notify(&app, &state)
+}
+
+/// Trigger a refresh request emitted by an external webhook relay.
+#[tauri::command]
+fn webhook_refresh(app: AppHandle) -> Result<(), String> {
+    app.emit("webhook-refresh-requested", ())
+        .map_err(|e| format!("Failed to emit webhook refresh event: {}", e))
 }
 
 /// Load configuration from disk.
@@ -177,4 +185,3 @@ fn send_threshold_notification(app: &AppHandle, threshold: u8, usage_pct: f64) {
     );
     let _ = app.notification().builder().title(title).body(body).show();
 }
-
