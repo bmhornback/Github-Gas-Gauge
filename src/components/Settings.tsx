@@ -51,6 +51,7 @@ function Settings({ initialConfig, onSaved, onCancel }: SettingsProps) {
       github_pat: pat.trim() || null,
       use_org: useOrg,
       org_name: orgName.trim() || null,
+      // Kept for backward compatibility with existing persisted Rust config schema.
       polling_interval: "fifteen_minutes",
       alert_thresholds: {
         notify_at_75: notify75,
