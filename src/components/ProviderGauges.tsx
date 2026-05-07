@@ -18,6 +18,8 @@ interface ProviderGaugesProps {
   providers: ProviderUsage[];
 }
 
+const MAX_GAUGE_PERCENTAGE = 110;
+
 function ProviderCard({ p }: { p: ProviderUsage }) {
   if (!p.available) {
     return (
@@ -40,6 +42,10 @@ function ProviderCard({ p }: { p: ProviderUsage }) {
     : p.cost;
 
   const gaugeTotal = isBalance ? (p.limit ?? 0) : (p.limit ?? 0);
+  const gaugePct =
+    gaugeTotal > 0
+      ? Math.min((gaugeUsed / gaugeTotal) * 100, MAX_GAUGE_PERCENTAGE)
+      : p.percent_used * 100;
 
   const topModels = Object.entries(p.by_model)
     .sort(([, a], [, b]) => b - a)
@@ -51,7 +57,7 @@ function ProviderCard({ p }: { p: ProviderUsage }) {
       <h3>{p.name}</h3>
 
       {hasLimit ? (
-        <GasGauge used={gaugeUsed} total={gaugeTotal} label={p.currency} />
+        <GasGauge percentage={gaugePct} />
       ) : (
         <div className="provider-no-gauge">
           <span className="provider-cost-value">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import GasGauge from "./components/GasGauge";
@@ -34,13 +34,6 @@ export interface AppConfig {
   };
 }
 
-const POLLING_MINUTES: Record<AppConfig["polling_interval"], number> = {
-  five_minutes: 5,
-  fifteen_minutes: 15,
-  thirty_minutes: 30,
-  one_hour: 60,
-};
-
 type Tab = "dashboard" | "analytics" | "settings";
 
 function App() {
@@ -50,7 +43,6 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchBilling = useCallback(async () => {
     setLoading(true);
@@ -76,15 +68,6 @@ function App() {
     }
   }, []);
 
-  const startPolling = useCallback(
-    (cfg: AppConfig) => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      const intervalMs = POLLING_MINUTES[cfg.polling_interval] * 60 * 1000;
-      pollingRef.current = setInterval(fetchBilling, intervalMs);
-    },
-    [fetchBilling]
-  );
-
   useEffect(() => {
     (async () => {
       const cfg = await fetchConfig();
@@ -93,24 +76,25 @@ function App() {
         return;
       }
       await fetchBilling();
-      startPolling(cfg);
     })();
 
-    // Listen for tray "Refresh Now" events.
-    const unlisten = listen("refresh-requested", () => fetchBilling());
+    // Listen for event-driven refresh triggers (tray + webhook relay).
+    const unlistenRefresh = listen("refresh-requested", () => fetchBilling());
+    const unlistenWebhook = listen("webhook-refresh-requested", () =>
+      fetchBilling()
+    );
 
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      unlisten.then((fn) => fn());
+      unlistenRefresh.then((fn) => fn());
+      unlistenWebhook.then((fn) => fn());
     };
-  }, [fetchBilling, fetchConfig, startPolling]);
+  }, [fetchBilling, fetchConfig]);
 
   const handleConfigSaved = useCallback(async () => {
-    const cfg = await fetchConfig();
-    if (cfg) startPolling(cfg);
+    await fetchConfig();
     await fetchBilling();
     setActiveTab("dashboard");
-  }, [fetchConfig, fetchBilling, startPolling]);
+  }, [fetchConfig, fetchBilling]);
 
   const usagePct =
     billing && billing.included_minutes > 0

@@ -29,8 +29,8 @@ GitHub Gas Gauge (GGG) is available as both a **Python CLI tool** and a **cross-
 - 📊 **Usage Breakdown** — Requests or minutes used by model, product, and runner OS
 - 📈 **Session Analytics** — Local Copilot session token insights by model, project, and session
 - ⚠️ **Overage Panel** — Shows paid overage minutes and estimated cost
-- ⚙️ **Settings** — PAT input, org/personal toggle, polling interval, notification thresholds
-- 🔄 **Auto-polling** — Configurable polling interval (5 min / 15 min / 30 min / 1 hour)
+- ⚙️ **Settings** — PAT input, org/personal toggle, webhook-driven refresh, notification thresholds
+- 🪝 **Webhook Refresh Events** — Event-driven refresh support for immediate usage updates
 - 🌙 **Dark Mode UI** — Clean, minimal dark theme
 
 ---
@@ -318,7 +318,7 @@ GGG requires a GitHub PAT to call the billing API.
 │   │   ├── BalancePanel.tsx          # Shows usage summary and breakdown
 │   │   ├── ProviderGauges.tsx        # External AI provider gauge cards
 │   │   ├── SessionAnalyticsPanel.tsx # Local Copilot session analytics
-│   │   └── Settings.tsx              # PAT input, polling interval, threshold config
+│   │   └── Settings.tsx              # PAT input, webhook refresh mode, threshold config
 │   ├── App.tsx
 │   ├── main.tsx
 │   └── styles/

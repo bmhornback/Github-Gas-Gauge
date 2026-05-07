@@ -25,8 +25,6 @@ function Settings({ initialConfig, onSaved, onCancel }: SettingsProps) {
   const [showPat, setShowPat] = useState(false);
   const [useOrg, setUseOrg] = useState(false);
   const [orgName, setOrgName] = useState("");
-  const [pollingInterval, setPollingInterval] =
-    useState<AppConfig["polling_interval"]>("fifteen_minutes");
   const [notify75, setNotify75] = useState(true);
   const [notify90, setNotify90] = useState(true);
   const [notify100, setNotify100] = useState(true);
@@ -39,7 +37,6 @@ function Settings({ initialConfig, onSaved, onCancel }: SettingsProps) {
     setPat(cfg.github_pat ?? "");
     setUseOrg(cfg.use_org);
     setOrgName(cfg.org_name ?? "");
-    setPollingInterval(cfg.polling_interval);
     setNotify75(cfg.alert_thresholds.notify_at_75);
     setNotify90(cfg.alert_thresholds.notify_at_90);
     setNotify100(cfg.alert_thresholds.notify_at_100);
@@ -54,7 +51,8 @@ function Settings({ initialConfig, onSaved, onCancel }: SettingsProps) {
       github_pat: pat.trim() || null,
       use_org: useOrg,
       org_name: orgName.trim() || null,
-      polling_interval: pollingInterval,
+      // Kept for backward compatibility with existing persisted Rust config schema.
+      polling_interval: "fifteen_minutes",
       alert_thresholds: {
         notify_at_75: notify75,
         notify_at_90: notify90,
@@ -151,24 +149,13 @@ function Settings({ initialConfig, onSaved, onCancel }: SettingsProps) {
         )}
       </div>
 
-      {/* Polling interval */}
+      {/* Refresh behavior */}
       <div className="form-group">
-        <label className="form-label" htmlFor="polling-select">
-          Polling Interval
-        </label>
-        <select
-          id="polling-select"
-          className="form-input"
-          value={pollingInterval}
-          onChange={(e) =>
-            setPollingInterval(e.target.value as AppConfig["polling_interval"])
-          }
-        >
-          <option value="five_minutes">Every 5 minutes</option>
-          <option value="fifteen_minutes">Every 15 minutes</option>
-          <option value="thirty_minutes">Every 30 minutes</option>
-          <option value="one_hour">Every hour</option>
-        </select>
+        <label className="form-label">Refresh Behavior</label>
+        <p className="form-hint">
+          Usage data now updates from event-driven webhook refresh events instead
+          of fixed polling intervals.
+        </p>
       </div>
 
       {/* Threshold notifications */}

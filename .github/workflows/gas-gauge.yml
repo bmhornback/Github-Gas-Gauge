@@ -42,9 +42,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run GitHub Gas Gauge (personal)
-        if: ${{ github.event.inputs.org == '' || github.event_name == 'schedule' }}
+        if: ${{ (github.event.inputs.org == '' || github.event_name == 'schedule') && secrets.COPILOT_TOKEN != '' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN }}
           COPILOT_PLAN: ${{ github.event.inputs.plan || 'pro' }}
           COPILOT_QUOTA: ${{ github.event.inputs.quota || '' }}
         run: |
@@ -60,9 +60,9 @@ jobs:
           python gas_gauge.py $ARGS
 
       - name: Run GitHub Gas Gauge (organization)
-        if: ${{ github.event.inputs.org != '' && github.event_name != 'schedule' }}
+        if: ${{ github.event.inputs.org != '' && github.event_name != 'schedule' && secrets.COPILOT_TOKEN != '' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN }}
           COPILOT_PLAN: ${{ github.event.inputs.plan || 'pro' }}
           COPILOT_QUOTA: ${{ github.event.inputs.quota || '' }}
         run: |
