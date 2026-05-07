@@ -76,7 +76,3 @@ jobs:
             ARGS="$ARGS --actions-only"
           fi
           python gas_gauge.py $ARGS
-
-      - name: Skip run when COPILOT_TOKEN is not configured
-        if: ${{ secrets.COPILOT_TOKEN == '' }}
-        run: echo "COPILOT_TOKEN secret is not configured; skipping usage check."
